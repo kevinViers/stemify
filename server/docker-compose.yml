@@ -1,0 +1,16 @@
+services:
+  stemserve:
+    build: .
+    image: stemserve:latest
+    container_name: stemserve
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - /mnt/user/Music/Stems:/stems:ro
+      - /mnt/user/appdata/stemserve/cache:/cache
+      # stemd's Stem Now folder (create it owned by 99:100 first; see README).
+      - /mnt/user/appdata/stemd/state/queue:/queue
+    environment:
+      # Optional shared secret; set the same token in the app (Settings > Stem Server).
+      - TOKEN=

@@ -1,0 +1,105 @@
+STEM EXTRACTOR FRONTEND DESIGN DOC
+2026-10-08
+
+== OVERVIEW AND GOALS ==
+A single-window desktop app that takes dropped audio files and splits them into stems (vocals, drums, bass, other) using Demucs on a local GPU, including AMD via ROCm on Linux. The UI pairs Material's layout and motion rules with Windows 7 Aero's glass and gloss, dark by default, and every animation and meter holds frame rate at 240Hz.
+
+Goals:
+- Drag-drop to finished stems in 2 clicks or fewer.
+- Sustained 240fps (4.17 ms frame budget) during idle, scrolling, playback and active separation.
+- Linux first (Wayland and X11), AMD and NVIDIA GPUs, CPU fallback.
+- Python backend so the separation logic stays hackable.
+
+Non-goals:
+- A DAW. Editing is limited to solo, mute, gain and export.
+- YouTube search or download in v1.
+- Light theme in v1 (tokens allow it later).
+
+== VISUAL LANGUAGE ==
+Material supplies structure (8dp grid, elevation scale, type ramp, motion curves). Aero supplies surface (frosted glass, top gloss highlight, soft glow on hover). Glass is reserved for chrome (title bar, sidebar, dialogs) so content stays crisp.
+
+Material x Aero mapping:
+- Title bar, sidebar: elevation 0 to 1. Glass: blur 16px, tint #10141C at 70%, 1px inner white border at 8%.
+- Cards (tracks): elevation 2, radius 8px. Top 40% gloss gradient, white 6% to 0%.
+- Buttons: filled and tonal variants, 40px height. Glossy pill, cyan glow on hover.
+- Dialogs: elevation 3, scrim 50%. Glass with stronger blur (24px).
+- Progress: linear indicator. Win7-style green-to-cyan striped bar, animated.
+
+Dark tokens:
+- bg: #0B0E14 (window background)
+- surface-1: #141924 (cards)
+- surface-2: #1C2330 (raised cards, menus)
+- glass-tint: rgba(16,20,28,0.70) (chrome)
+- primary: #3BA8FF (Aero blue, actions)
+- accent-glow: #5FE3FF (hover glow, focus ring)
+- success: #4CD07D (done state)
+- error: #FF5C6C (failures)
+- text-hi: #E8EDF5 (body)
+- text-lo: #8A94A6 (secondary)
+
+Stem colors: vocals #FF7AB6, drums #FFB547, bass #7C8CFF, other #4CD07D.
+
+Type and motion:
+- Type: Segoe UI Variable if present, else Inter. Ramp 12 / 14 / 16 / 20 / 28px.
+- Motion: Material standard easing cubic-bezier(0.2, 0, 0, 1), durations 100 / 200 / 300 ms. No animation over 300 ms.
+
+== LAYOUT AND COMPONENTS ==
+One window, three regions: a glass sidebar (220px) for the queue, a main pane for the selected track, and a bottom transport bar (64px). Minimum window 960x600.
+
+Components:
+- Drop zone: empty-state card filling main pane; dashed glow border on drag-over.
+- Queue item: filename, model, status chip, striped progress bar, cancel.
+- Model picker: dropdown (htdemucs, htdemucs_ft, htdemucs_6s); toggle for 2-stem vocals mode.
+- Device picker: Auto / GPU name / CPU; shows free VRAM.
+- Stem lanes: one lane per stem with color strip, waveform, solo, mute, gain slider, export.
+- Transport: play/pause, scrub bar, time, master level meter.
+- Settings dialog: output folder, format (wav/flac/mp3), segment size, shifts.
+
+User flow:
+1. Drop file(s) onto window. Each becomes a queue item.
+2. Separation starts automatically with last-used model and device.
+3. On completion, stem lanes appear with waveforms; audio plays in sync.
+4. Export all, or per stem, to the output folder.
+
+== 240HZ PERFORMANCE PLAN ==
+Budget is 4.17 ms per frame, so the UI thread never touches audio decoding, inference or file IO, and live glass blur is limited to static chrome.
+
+- Rendering: GPU-accelerated scene graph with vsync on; no fixed 60Hz timers. Animations driven by frame callbacks with delta-time, never step-per-tick.
+- Blur cost: chrome glass blurs a cached snapshot of the window background, refreshed only on resize. Content never sits under live blur.
+- Waveforms: precomputed min/max peaks (e.g. 512 samples per bucket) in the backend, uploaded once as a texture or vertex buffer. Zoom picks a mip level; no per-frame recompute.
+- Meters and playhead: read from a shared ring buffer, interpolated per frame.
+- Progress updates: backend sends at most 30 updates/s; UI interpolates between them.
+- Isolation: Demucs runs in a separate process so GIL and GPU stalls cannot block the UI.
+- Verification: frame-time overlay (dev flag) showing p50/p99 frame time; target p99 under 4.17 ms on a 240Hz panel during active separation.
+
+Note: Wayland compositors set the refresh rate; on X11 mixed-refresh multi-monitor setups the app may fall back to the lowest rate.
+
+== TECH STACK AND BACKEND INTEGRATION ==
+Recommended: PySide6 with Qt Quick (QML) for the UI, plus a separate Python worker process for Demucs. QML's scene graph renders on the GPU at display refresh, supports MultiEffect blur and shaders, and keeps everything in Python.
+
+Alternatives considered:
+- PySide6 + QML (pick): strong 240Hz fit; native GPU scene graph, Python end to end.
+- Tauri + web UI: good fit; needs Rust shell plus Python sidecar; WebKitGTK on Linux can be choppy.
+- Dear PyGui: strong fit; fast, but Aero glass and Material polish are hard.
+
+Backend contract:
+- Worker: demucs.api (or audio-separator) in its own process using ROCm or CUDA PyTorch; torch.cuda covers both.
+- IPC: JSON messages over a local socket:
+    start    {file, model, device, two_stems}
+    progress {id, pct}
+    done     {id, stems[], peaks_path}
+    error    {id, msg}
+    cancel   {id}
+- Audio playback: decoded stems streamed via sounddevice in a third thread with its own buffer.
+- One job on GPU at a time; queue the rest.
+
+== MILESTONES ==
+1. Worker process: Demucs on ROCm, IPC protocol, CLI test harness.
+2. Shell: window, glass chrome, tokens, drop zone, queue with progress.
+3. Results: peak generation, stem lanes, synced playback, export.
+4. Polish: frame-time overlay, hit 240fps p99 target, settings dialog.
+
+== OPEN QUESTIONS ==
+- Frameless custom title bar, or keep the system one?
+- Include UVR models (MDX, RoFormer) alongside Demucs?
+- Package as AppImage, Flatpak, or pip only?

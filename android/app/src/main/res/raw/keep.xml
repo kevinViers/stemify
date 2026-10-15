@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Referenced by name from android.resource:// URIs in the Android Auto tree, which the shrinker can't see. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_car_*" />

@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Android / Gradle
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+.idea/
+*.iml
+
+# Built and third-party APKs (publish builds as GitHub Releases instead)
+*.apk
+*.aab

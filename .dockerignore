@@ -1,0 +1,6 @@
+# Only server/stemd.Dockerfile builds from the repo root; keep the venv and APKs out of its context.
+*
+!server/stemd.py
+!server/stemd-requirements.txt
+!stemroller/*.py
+!stemroller/worker/*.py

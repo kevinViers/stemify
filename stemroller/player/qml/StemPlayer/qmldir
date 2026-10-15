@@ -1,0 +1,25 @@
+module StemPlayer
+singleton X 1.0 X.qml
+Backstage 1.0 Backstage.qml
+CaptionButton 1.0 CaptionButton.qml
+FormulaBar 1.0 FormulaBar.qml
+Ico 1.0 Ico.qml
+Main 1.0 Main.qml
+MessageBar 1.0 MessageBar.qml
+OfficeButton 1.0 OfficeButton.qml
+RButton 1.0 RButton.qml
+ResizeEdge 1.0 ResizeEdge.qml
+RGroup 1.0 RGroup.qml
+Ribbon 1.0 Ribbon.qml
+Sheet 1.0 Sheet.qml
+SheetTabs 1.0 SheetTabs.qml
+StatusBar 1.0 StatusBar.qml
+StemChart 1.0 StemChart.qml
+TaskPane 1.0 TaskPane.qml
+Tip 1.0 Tip.qml
+TitleBar 1.0 TitleBar.qml
+T 1.0 T.qml
+XCheck 1.0 XCheck.qml
+XField 1.0 XField.qml
+XMenu 1.0 XMenu.qml
+XScrollBar 1.0 XScrollBar.qml
