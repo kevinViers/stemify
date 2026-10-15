@@ -3,7 +3,7 @@
 
 Runs on the server next to stemserve. Walks MUSIC_DIR, and for each track whose folder
 under STEMS_DIR has no marker it runs the separation on the GPU and writes the stems with
-the same layout and marker as the desktop app (stemroller/library_core.py), so stemserve
+the same layout and marker as the desktop app (stemify/library_core.py), so stemserve
 and the phone pick them up as they land. Once caught up it looks again every RESCAN_MIN.
 
 "Stem Now" in the app goes through stemserve, which drops a request (a JSON list of Plex
@@ -17,7 +17,7 @@ Settings (environment):
   STATE_DIR   /state           failed-track list
   QUEUE_DIR   STATE_DIR/queue  "Stem Now" requests from stemserve
   MODELS_DIR  /models          model weights, downloaded on first use
-  MODEL       roformer_bs_sw   any id from stemroller/catalog.py
+  MODEL       roformer_bs_sw   any id from stemify/catalog.py
   DEVICE      cuda             cuda, cuda:N or cpu
   RESCAN_MIN  30               minutes between scans once caught up
   FP16        1                half precision on the GPU
@@ -36,8 +36,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stemroller.catalog import MODELS_BY_ID  # noqa: E402
-from stemroller.library_core import (MAX_SECONDS, SOURCE_RANK, duration, is_done, is_share_error,  # noqa: E402
+from stemify.catalog import MODELS_BY_ID  # noqa: E402
+from stemify.library_core import (MARKER, MAX_SECONDS, SOURCE_RANK, duration, is_done, is_share_error,  # noqa: E402
                                      iter_tracks, signature, write_track)
 
 MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
@@ -101,7 +101,7 @@ class _NoProgress:
 class Separator:
     def __init__(self):
         import torch
-        from stemroller.worker.backends import DemucsBackend, RoformerBackend
+        from stemify.worker.backends import DemucsBackend, RoformerBackend
 
         self.torch = torch
         self.model = MODELS_BY_ID[MODEL]
@@ -116,7 +116,7 @@ class Separator:
     def run(self, path, tmp):
         # Imported late: worker/__main__ sets ROCm env defaults, harmless here, and owns Job's
         # parameter rules (overlap, fp16, ...), which must match the desktop's.
-        from stemroller.worker.__main__ import Job
+        from stemify.worker.__main__ import Job
         job = Job({"id": "stemd", "file": path, "model": MODEL, "out_dir": tmp, "segment": SEGMENT,
                    "shifts": SHIFTS, "overlap": OVERLAP, "fp16": FP16}, _NoProgress())
         if "file" in self.model and not os.path.exists(os.path.join(MODELS_DIR, self.model["file"])):
@@ -181,6 +181,32 @@ def separate(sep, failed, path, dest, sig, label):
     took = time.monotonic() - t1
     log(f"    done in {took:.0f}s" + (f" ({meta['duration'] / took:.1f}x realtime)" if took else ""))
     return True
+
+
+# The project was renamed to Stemify; songs separated before that carry the old marker name.
+# migrate_markers() renames them once so they aren't separated again. Once stemd has run it
+# against your library, this constant, the function and its call in main() can be deleted.
+LEGACY_MARKER = ".stemroller.json"
+
+
+def migrate_markers():
+    """Rename every legacy done-marker under STEMS_DIR to MARKER (a few seconds per 10k songs)."""
+    n = 0
+    for root, dirs, files in os.walk(STEMS_DIR):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        if LEGACY_MARKER not in files:
+            continue
+        old, new = os.path.join(root, LEGACY_MARKER), os.path.join(root, MARKER)
+        try:
+            if MARKER in files:
+                os.remove(old)
+            else:
+                os.replace(old, new)
+            n += 1
+        except OSError as e:
+            log(f"can't rename {old}: {e}")
+    if n:
+        log(f"renamed {n:,} {LEGACY_MARKER} markers to {MARKER}")
 
 
 def resolve(plex_path):
@@ -320,6 +346,7 @@ def main():
     except OSError as e:
         log(f"WARNING: can't create {QUEUE_DIR} ({e}); Stem Now won't work")
     log(f"stemd: {MUSIC_DIR} -> {STEMS_DIR}")
+    migrate_markers()
     sep = Separator()
     failed = Failed()
     while not stop.is_set():

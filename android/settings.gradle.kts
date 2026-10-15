@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "StemRoller"
+rootProject.name = "Stemify"
 include(":app")

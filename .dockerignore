@@ -2,5 +2,5 @@
 *
 !server/stemd.py
 !server/stemd-requirements.txt
-!stemroller/*.py
-!stemroller/worker/*.py
+!stemify/*.py
+!stemify/worker/*.py

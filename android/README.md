@@ -1,4 +1,4 @@
-# StemRoller for Android
+# Stemify for Android
 
 A Plex music player for the OnePlus 15 that plays the stems stemd separates on your
 unraid server: per-stem faders, mute/solo, karaoke-style presets, a master volume drawn
@@ -8,10 +8,10 @@ iOS look in Black, Dark or White (flat colours, no gradients).
 
 ## Install
 
-`../StemRoller.apk` is a release build signed with the debug key, ready to sideload:
+`../Stemify.apk` is a release build signed with the debug key, ready to sideload:
 
 ```sh
-adb install -r ../StemRoller.apk
+adb install -r ../Stemify.apk
 ```
 
 ## First run
@@ -87,7 +87,7 @@ that's what is shaped for the knob (`auto/`, `playback/PlaybackService.kt`):
   shows on the artist line ("Black Sabbath · Karaoke"), since a button press gets no other
   feedback. Songs without stems just get shuffle and repeat, and say "No stems" in the lists. The same buttons appear on the
   phone's lock-screen controls.
-- **Voice:** hold the wheel's talk button: "play Paranoid on StemRoller" (a playlist,
+- **Voice:** hold the wheel's talk button: "play Paranoid on Stemify" (a playlist,
   artist, album or song; artists shuffle). There's no keyboard while driving, so Auto's
   search button is voice too.
 - **Offline:** in the car the phone is on mobile data and Plex/stemserve are LAN-only. The
@@ -103,7 +103,7 @@ Auto hides sideloaded apps until you allow them:
 1. Phone Settings → search "Android Auto" → scroll to the bottom and tap **Version** ten
    times → OK.
 2. ⋮ menu → **Developer settings** → tick **Unknown sources**.
-3. Plug into the Miata. StemRoller is in Auto's app launcher (the grid of icons).
+3. Plug into the Miata. Stemify is in Auto's app launcher (the grid of icons).
 
 Download what you want for the drive while on home Wi-Fi.
 

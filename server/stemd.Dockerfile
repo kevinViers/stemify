@@ -1,5 +1,5 @@
 # stemd: separates new music into stems on the server's NVIDIA GPU (see stemd.py).
-# Build from the repo root, since it needs the stemroller package:
+# Build from the repo root, since it needs the stemify package:
 #   docker build -f server/stemd.Dockerfile -t stemd .
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
@@ -12,9 +12,9 @@ COPY server/stemd-requirements.txt /tmp/
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
  && pip install --no-cache-dir --no-deps -r /tmp/stemd-requirements.txt && pip check \
  && apt-get purge -y gcc libc6-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
-COPY stemroller/__init__.py stemroller/catalog.py stemroller/library_core.py /app/stemroller/
-COPY stemroller/worker/__init__.py stemroller/worker/__main__.py stemroller/worker/audio_io.py \
-     stemroller/worker/backends.py /app/stemroller/worker/
+COPY stemify/__init__.py stemify/catalog.py stemify/library_core.py /app/stemify/
+COPY stemify/worker/__init__.py stemify/worker/__main__.py stemify/worker/audio_io.py \
+     stemify/worker/backends.py /app/stemify/worker/
 COPY server/stemd.py /app/server/
 ENV MUSIC_DIR=/music STEMS_DIR=/stems STATE_DIR=/state MODELS_DIR=/models \
     TORCH_HOME=/models/torch HF_HOME=/models/hf NUMBA_CACHE_DIR=/tmp/numba HOME=/tmp \

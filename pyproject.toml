@@ -1,5 +1,5 @@
 [project]
-name = "stemroller"
+name = "stemify"
 version = "0.1.0"
 description = "Drag-drop stem separation (Demucs + RoFormer) with a 240Hz Material x Aero UI"
 requires-python = ">=3.12,<3.13"
@@ -17,9 +17,9 @@ dependencies = [
 ]
 
 [project.scripts]
-stemroller = "stemroller.app:main"
-stemroller-worker-cli = "stemroller.worker.cli:main"
-stemroller-player = "stemroller.player.app:main"
+stemify = "stemify.app:main"
+stemify-worker-cli = "stemify.worker.cli:main"
+stemify-player = "stemify.player.app:main"
 
 [tool.uv]
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
@@ -44,4 +44,4 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["stemroller"]
+packages = ["stemify"]

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Add StemRoller and StemRoller Player to the app grid (and "Open with" for audio files).
+# Add Stemify and Stemify Player to the app grid (and "Open with" for audio files).
 # Re-run after moving the project; `--uninstall` removes all of it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
-DESKTOP="$APPS/stemroller.desktop"
-ICON="$ICONS/stemroller.svg"
-PLAYER_DESKTOP="$APPS/stemroller-player.desktop"
-PLAYER_ICON="$ICONS/stemroller-player.svg"
+DESKTOP="$APPS/stemify.desktop"
+ICON="$ICONS/stemify.svg"
+PLAYER_DESKTOP="$APPS/stemify-player.desktop"
+PLAYER_ICON="$ICONS/stemify-player.svg"
 # stem-on / stem-off from older installs; library separation now runs on the server (server/stemd.py).
 OLD_BIN="$HOME/.local/bin"
 
@@ -19,7 +19,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     exit 0
 fi
 
-for bin in stemroller stemroller-player; do
+for bin in stemify stemify-player; do
     if [[ ! -x "$ROOT/.venv/bin/$bin" ]]; then
         echo "missing $ROOT/.venv/bin/$bin; run 'uv sync' in $ROOT first" >&2
         exit 1
@@ -27,44 +27,44 @@ for bin in stemroller stemroller-player; do
 done
 
 mkdir -p "$APPS" "$ICONS"
-install -m 644 "$ROOT/stemroller/assets/stemroller.svg" "$ICON"
-install -m 644 "$ROOT/stemroller/player/assets/stemroller-player.svg" "$PLAYER_ICON"
+install -m 644 "$ROOT/stemify/assets/stemify.svg" "$ICON"
+install -m 644 "$ROOT/stemify/player/assets/stemify-player.svg" "$PLAYER_ICON"
 
-# StartupWMClass / file name match QGuiApplication.setDesktopFileName("stemroller"),
+# StartupWMClass / file name match QGuiApplication.setDesktopFileName("stemify"),
 # so Wayland groups the window under this entry and shows its icon.
 cat > "$DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
-Name=StemRoller
+Name=Stemify
 GenericName=Stem Separator
 Comment=Split songs into vocals, drums, bass and more on the GPU
-Exec="$ROOT/.venv/bin/stemroller" %F
+Exec="$ROOT/.venv/bin/stemify" %F
 Path=$ROOT
-Icon=stemroller
+Icon=stemify
 Terminal=false
 Categories=AudioVideo;Audio;
 MimeType=audio/mpeg;audio/flac;audio/x-flac;audio/wav;audio/x-wav;audio/ogg;audio/opus;audio/mp4;audio/aac;audio/x-aiff;audio/x-m4a;
 Keywords=stems;demucs;roformer;vocals;karaoke;separate;
-StartupWMClass=stemroller
+StartupWMClass=stemify
 StartupNotify=true
 EOF
 chmod 644 "$DESKTOP"
 
-# StartupWMClass matches QGuiApplication.setDesktopFileName("stemroller-player"); the
+# StartupWMClass matches QGuiApplication.setDesktopFileName("stemify-player"); the
 # MPRIS DesktopEntry points here too, so media controls show this icon.
 cat > "$PLAYER_DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
-Name=StemRoller Player
+Name=Stemify Player
 GenericName=Music Player
 Comment=Your Plex library and its stems, in a spreadsheet
-Exec="$ROOT/.venv/bin/stemroller-player"
+Exec="$ROOT/.venv/bin/stemify-player"
 Path=$ROOT
-Icon=stemroller-player
+Icon=stemify-player
 Terminal=false
 Categories=AudioVideo;Audio;Player;
 Keywords=music;plex;stems;karaoke;player;excel;
-StartupWMClass=stemroller-player
+StartupWMClass=stemify-player
 StartupNotify=true
 EOF
 chmod 644 "$PLAYER_DESKTOP"

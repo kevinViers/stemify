@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.stemroller.mobile"
+    namespace = "com.stemify.mobile"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.stemroller.mobile"
+        applicationId = "com.stemify.mobile"
         minSdk = 33
         targetSdk = 36
         versionCode = 1

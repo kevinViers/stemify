@@ -1,6 +1,6 @@
 # stemserve
 
-Serves the StemRoller stems folder to the Android app: an index of every separated
+Serves the Stemify stems folder to the Android app: an index of every separated
 song, the stem files with HTTP range support (so the phone can seek and stream), per-stem
 waveforms, and optional Opus transcodes so cached songs take ~1/8 the space.
 
@@ -15,7 +15,7 @@ from the desktop). From an unraid terminal:
 ```sh
 mkdir -p /mnt/user/appdata/stemserve/cache /mnt/user/appdata/stemd/state/queue
 chown -R 99:100 /mnt/user/appdata/stemserve /mnt/user/appdata/stemd
-cp -r /path/to/stemRoller2/server /mnt/user/appdata/stemserve/src   # or copy over SMB
+cp -r /path/to/stemify/server /mnt/user/appdata/stemserve/src   # or copy over SMB
 docker build -t stemserve /mnt/user/appdata/stemserve/src
 docker run -d --name stemserve --restart unless-stopped -p 8765:8765 \
   -v /mnt/user/Music/Stems:/stems:ro \
@@ -36,7 +36,7 @@ curl http://192.168.86.2:8765/api/info
 
 | Variable    | Default  | Meaning                                                    |
 |-------------|----------|------------------------------------------------------------|
-| `STEMS_DIR` | `/stems` | The StemRoller library output folder                       |
+| `STEMS_DIR` | `/stems` | The Stemify library output folder                       |
 | `CACHE_DIR` | `/cache` | Opus transcodes and waveforms (safe to delete)             |
 | `PORT`      | `8765`   | Listen port                                                |
 | `TOKEN`     | empty    | If set, requests need `X-Stem-Token` or `?token=`           |
@@ -66,19 +66,19 @@ STEMS_DIR=/var/mnt/unraid/Music/Stems CACHE_DIR=~/.cache/stemserve python3 stems
 # stemd: separate new music on the server's GPU
 
 `stemd.py` keeps the stems library up to date. It walks the music folder, separates every
-track whose stems folder has no `.stemroller.json` yet (BS-RoFormer SW 6-stem by default,
+track whose stems folder has no `.stemify.json` yet (BS-RoFormer SW 6-stem by default,
 like the desktop app), and writes them in the layout above, so stemserve and the phone pick
 them up within `INDEX_TTL`. Once it has caught up it checks for new music every 30 minutes.
 Nothing runs on the desktop.
 
-It writes the same layout the desktop app's old library mode did (`stemroller/library_core.py`),
+It writes the same layout the desktop app's old library mode did (`stemify/library_core.py`),
 so the ~300 tracks already done on the desktop are skipped, and a track interrupted
 mid-way (`docker stop`, a reboot) is redone from scratch next time.
 
 ## Run it on unraid (NVIDIA)
 
 Needs the **Nvidia-Driver** plugin (Apps tab). The image builds from the repo root
-because it uses the `stemroller` package. Copy the repo, or at least `stemroller/`,
+because it uses the `stemify` package. Copy the repo, or at least `stemify/`,
 `server/` and `.dockerignore`, to `/mnt/user/appdata/stemd/src`, then from an unraid terminal:
 
 ```sh
@@ -115,9 +115,14 @@ skipped here too.
 To update after changing the code: copy the files over again, rebuild, then
 `docker rm -f stemd` and repeat the `docker run`.
 
+Coming from before the rename to Stemify: update stemd first. On its first start it renames
+the old done-markers in the stems folder to `.stemify.json` (it logs how many), so nothing is
+separated twice. The new stemserve only looks for the new name, so until stemd has done that
+the app would briefly see no stems.
+
 | Variable     | Default          | Meaning                                              |
 |--------------|------------------|------------------------------------------------------|
-| `MODEL`      | `roformer_bs_sw` | any id from `stemroller/catalog.py`                  |
+| `MODEL`      | `roformer_bs_sw` | any id from `stemify/catalog.py`                  |
 | `DEVICE`     | `cuda`           | `cuda`, `cuda:N` or `cpu`                            |
 | `RESCAN_MIN` | `30`             | minutes between scans once caught up                 |
 | `FP16`       | `1`              | half precision on the GPU (`0` for fp32)             |

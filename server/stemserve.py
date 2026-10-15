@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""stemserve: serves StemRoller library stems to the Android app over HTTP.
+"""stemserve: serves Stemify library stems to the Android app over HTTP.
 
 Stdlib only; ffmpeg is optional and enables Opus transcodes and waveforms.
 
-The stems folder is what stemroller.library writes:
+The stems folder is what stemify.library writes:
 
-  <STEMS_DIR>/Artist/Album/01 Song/.stemroller.json
+  <STEMS_DIR>/Artist/Album/01 Song/.stemify.json
   <STEMS_DIR>/Artist/Album/01 Song/01 Song - vocals.flac, ...
 
 Endpoints (all GET unless noted; add ?token=... or X-Stem-Token when TOKEN is set):
@@ -44,7 +44,7 @@ TOKEN = os.environ.get("TOKEN", "")
 INDEX_TTL = float(os.environ.get("INDEX_TTL", "30"))
 QUEUE_DIR = os.environ.get("QUEUE_DIR", "/queue")  # stemd's request folder, shared with it
 MAX_BODY = 8 << 20
-MARKER = ".stemroller.json"
+MARKER = ".stemify.json"
 VERSION = 1
 FFMPEG = shutil.which("ffmpeg")
 OPUS_RATES = (64, 96, 128, 160, 192, 256)
