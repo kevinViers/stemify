@@ -287,38 +287,30 @@ anything over 40 minutes) are skipped; delete `state/failed.json` to give them a
 
 ## The Equalizer
 
-Find it in **Settings → Equalizer**. It's two equalizers wearing one trench coat.
+Find it in **Settings → Equalizer**, or tap the output name under the play button on Now Playing.
+It's two equalizers wearing one trench coat:
 
-**The graphic EQ** has ten octave bands from 31 Hz to 16 kHz, a response curve, and a pile of
-presets borrowed in spirit from iOS (Bass Booster, Late Night, Vocal Booster and friends).
+- **A 10-band graphic EQ** (31 Hz to 16 kHz, ±12 dB) with 21 presets borrowed in spirit from iOS
+  (Bass Booster, Late Night, Vocal Booster and friends).
+- **Parametric Filters**, modelled on [Equalizer APO](https://sourceforge.net/projects/equalizerapo/):
+  peak, low/high shelf, low/high pass (6 to 48 dB/oct), band pass, notch and all pass, each with
+  frequency, gain and Q, on both channels or just left or right.
 
-**Parametric Filters** are modelled on [Equalizer APO](https://sourceforge.net/projects/equalizerapo/):
+**Profiles follow your output device.** The phone speaker, wired headphones, each Bluetooth headset
+and each USB DAC can have their own profile, switched automatically the moment audio moves to it.
 
-| Type | What it's for |
-|---|---|
-| Peak | Boost or cut around one frequency |
-| Low Shelf / High Shelf | Tilt everything below or above a frequency |
-| Low Pass / High Pass | Roll off the top or bottom, at 6, 12, 24, 36 or 48 dB per octave |
-| Band Pass | Keep only a band |
-| Notch | Surgically remove one frequency (hello, 60 Hz hum) |
-| All Pass | Shift phase without changing level, for the true connoisseur |
+**Headphone corrections in two taps.** Copy a `ParametricEQ.txt` from
+[AutoEQ](https://github.com/jaakkopasanen/AutoEq) and choose **Parametric Filters → ••• → Paste APO
+Config**. **Copy as APO Config** takes your settings to a PC.
 
-Every filter has frequency, gain and Q, can apply to **both channels, or just left or right**,
-and can be switched off on its own to compare. Drag a filter's handle on its curve (sideways for
-frequency, up and down for gain), use the sliders, or tap any value to type it in.
+**No clipping.** An anti-clipping preamp turns the EQ's input down by exactly as much as the curve
+boosts, and a limiter on the master bus catches anything else, so cranking the bass won't crackle.
 
-**Headphone corrections in two taps:** copy a `ParametricEQ.txt` from
-[AutoEQ](https://github.com/jaakkopasanen/AutoEq) for your headphones, then on the Filters page
-choose **••• → Paste APO Config**. You can also **Copy as APO Config** to take your settings to a
-PC.
+![What anti-clipping does](docs/eq/anti-clip.svg)
 
-**Profiles** link to output devices: the phone speaker, wired headphones, each Bluetooth headset,
-USB DACs. Plug something in and its profile switches on automatically, or pick one by hand.
-
-**Preamp and anti-clipping:** each profile has its own manual preamp, and the anti-clipping switch
-adds just enough extra cut that a full-scale signal at the curve's loudest point still peaks at
-0 dBFS. A limiter on the master bus catches anything else, so cranking the bass won't make things
-crackle.
+📖 **[The complete Equalizer guide](docs/EQUALIZER.md)** covers every control and setting, what each
+preset actually does (with graphs), every filter type and parameter, gain staging, profiles, the
+AutoEQ/APO format, how to EQ by ear, and a dozen recipes with before/after curves.
 
 ---
 
@@ -487,6 +479,9 @@ android/                 the Android and Android Auto app (Kotlin, Jetpack Compo
     playback/            queue, audio focus, mix presets, the Media3 session
     auto/                Android Auto browse tree, voice search, offline mode
     ui/                  every screen, hand-built iOS-style components
+docs/
+  EQUALIZER.md           the complete Equalizer guide
+  eq/                    its response graphs, and make_figures.py, which draws them from the app's EQ maths
 server/
   stemd.py               the GPU separation daemon
   stemserve.py           the stem file server (standard library only)
