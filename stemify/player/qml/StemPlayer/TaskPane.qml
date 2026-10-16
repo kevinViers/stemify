@@ -247,6 +247,12 @@ Rectangle {
                 height: 250
             }
 
+            StemScope {
+                visible: player.sourceKind === "stems"
+                width: parent.width
+                height: implicitHeight
+            }
+
             Row {
                 visible: player.sourceKind === "stems"
                 spacing: 8

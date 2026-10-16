@@ -30,7 +30,7 @@ separated song is already playable.
 | AutoSum | AutoShuffle: shuffle the whole sheet |
 | Quick Access Toolbar | Play/Pause, Undo = previous song, Redo = next song |
 | Home → Playback | Play, previous / next, Back 10s / Ahead 10s, stop, shuffle, repeat |
-| Format Mix task pane | Now playing, a sparkline of the song to seek on, and the stems as a column chart: drag a column to set its level, double-click for 0 dB, M / S below |
+| Format Mix task pane | Now playing, a sparkline of the song to seek on, and the stems as a column chart: drag a column to set its level, double-click for 0 dB, M / S below. Under it, a live spectrum of each stem after its fader, redrawn every frame (240Hz on a 240Hz panel) |
 | Green triangle in a cell | The song that's playing |
 | `#GETTING_DATA` | A playlist loading from Plex |
 | File → Info / Account / Options | Library and server status, Plex sign-in, server addresses and folders |

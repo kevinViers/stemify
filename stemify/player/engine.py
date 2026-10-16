@@ -11,6 +11,7 @@ import collections
 import json
 import subprocess
 import threading
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -24,6 +25,17 @@ LATENCY = 0.15  # roomy: Python shares the GIL with library loading
 RING = 64
 MAX_STEMS = 8  # per-stem levels kept per block, for meters
 CEILING = 0.985  # limiter: just under full scale
+# Spectrum: each stem's post-fader signal is kept in a short tap, and every displayed frame
+# analyses the window that ends at the sample being heard, so it moves at the panel's rate
+# (240Hz), not the audio block rate.
+TAP = 1 << 15  # frames of history per stem (> output latency + FFT window)
+FFT = 2048  # analysis window
+NFFT = 8192  # zero-padded, so even the bass bands are a bin or more wide
+BANDS = 32
+F_LO, F_HI = 40.0, 16000.0
+FLOOR_DB, TOP_DB = -78.0, -12.0  # band level (with tilt) mapped to 0..1
+TILT_DB = 3.0  # per octave about 1 kHz, so the highs read like they sound
+FALL_S = 0.18  # release time constant
 
 
 class SfReader:
@@ -173,6 +185,11 @@ class PlayerEngine(QObject):
         self._eq = None  # object with process(buf, sr), swapped in whole from the GUI thread
         self._lim = 1.0
         self._ring_i = 0
+        self._tap = np.zeros((MAX_STEMS, TAP), np.float32)
+        self._win = np.hanning(FFT).astype(np.float32)
+        self._bands_sr = None
+        self._spec = np.zeros((0, BANDS), np.float32)
+        self._spec_t = 0.0
         self._thread = threading.Thread(target=self._decode_loop, daemon=True, name="decoder")
         self._thread.start()
         # The callback only sets flags; this turns them into signals on the GUI thread.
@@ -351,6 +368,7 @@ class PlayerEngine(QObject):
             self._cb_gen = gen
             self._cur = None
             self._pos = self._gen_start
+            self._tap.fill(0)
         mix = self._mix[:frames]
         mix.fill(0)
         start_pos = self._pos
@@ -384,6 +402,7 @@ class PlayerEngine(QObject):
                 mix[filled:filled + take] += np.tensordot(g1, seg, axes=(0, 0))
             if take:
                 np.maximum(lv, np.abs(seg).max(axis=(1, 2)) * np.abs(g1), out=lv)
+                self._write_tap(seg, w if ramping else g1[:, None], start_pos + filled)
             filled += take
             self._cur_off = off + take
             if self._cur_off >= cur.shape[1]:
@@ -416,6 +435,16 @@ class PlayerEngine(QObject):
         r[4:4 + n] = lv[:n]
         r[4 + n:] = 0
         self._ring_i += 1
+
+    def _write_tap(self, seg, w, frame):
+        """Post-fader mono of each stem into the spectrum tap, indexed by song frame."""
+        k = min(seg.shape[0], MAX_STEMS)
+        mono = (seg[:k, :, 0] + seg[:k, :, 1]) * (0.5 * w[:k])
+        i = frame % TAP
+        n = min(mono.shape[1], TAP - i)
+        self._tap[:k, i:i + n] = mono[:, :n]
+        if n < mono.shape[1]:
+            self._tap[:k, :mono.shape[1] - n] = mono[:, n:]
 
     def _limit(self, mix, frames):
         """Peak limiter on the master bus, so stems pushed past unity or an EQ boost never clip:
@@ -476,6 +505,40 @@ class PlayerEngine(QObject):
             return []
         return [float(v) for v in played[np.argmax(played[:, 0])][4:]]
 
+    @Slot(result="QVariantList")
+    def spectrum(self):
+        """Per-stem spectra of what's at the DAC now: BANDS values (0..1, log-spaced F_LO..F_HI)
+        per stem, stem after stem. Peaks hold and fall back over FALL_S; all zeros once settled."""
+        now = time.monotonic()
+        k = min(len(self._gains), MAX_STEMS) if self._src is not None else 0
+        if self._spec.shape[0] != k:
+            self._spec = np.zeros((k, BANDS), np.float32)
+        spec = self._spec
+        spec *= np.exp(-min(0.25, now - self._spec_t) / FALL_S)
+        self._spec_t = now
+        if k and self._playing and self._stream is not None:
+            if self._bands_sr != self._sr:
+                self._make_bands(self._sr)
+            h = int(self._heard_frame())
+            x = self._tap[:k, (np.arange(h - FFT, h)) % TAP] * self._win
+            mag = np.abs(np.fft.rfft(x, NFFT, axis=1))[:, self._b0:self._b1]
+            band = np.maximum.reduceat(mag, self._starts, axis=1)
+            db = 20 * np.log10(band * (4.0 / FFT) + 1e-9) + self._tilt
+            np.maximum(spec, np.clip((db - FLOOR_DB) / (TOP_DB - FLOOR_DB), 0, 1), out=spec)
+        spec[spec < 0.002] = 0
+        return spec.ravel().tolist()
+
+    def _make_bands(self, sr):
+        hi = min(F_HI, sr * 0.45)
+        b = np.round(np.geomspace(F_LO, hi, BANDS + 1) * NFFT / sr).astype(int)
+        for i in range(1, len(b)):  # never empty, should the rate be very high
+            b[i] = max(b[i], b[i - 1] + 1)
+        self._b0, self._b1 = b[0], b[-1]
+        self._starts = b[:-1] - b[0]
+        centre = np.sqrt(b[:-1] * b[1:]) * sr / NFFT
+        self._tilt = (TILT_DB * np.log2(centre / 1000.0)).astype(np.float32)
+        self._bands_sr = sr
+
     def position(self):
         return self._heard_frame() / self._sr if self._src is not None else 0.0
 
@@ -495,3 +558,4 @@ class PlayerEngine(QObject):
     buffering = Property(bool, _get_buffering, notify=bufferingChanged)
     duration = Property(float, _get_duration, notify=durationChanged)
     volume = Property(float, _get_volume, setVolume, notify=volumeChanged)
+    spectrumRange = Property("QVariantList", lambda self: [BANDS, F_LO, F_HI], constant=True)

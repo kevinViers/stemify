@@ -15,6 +15,7 @@ Sheet 1.0 Sheet.qml
 SheetTabs 1.0 SheetTabs.qml
 StatusBar 1.0 StatusBar.qml
 StemChart 1.0 StemChart.qml
+StemScope 1.0 StemScope.qml
 TaskPane 1.0 TaskPane.qml
 Tip 1.0 Tip.qml
 TitleBar 1.0 TitleBar.qml
