@@ -12,6 +12,12 @@ Page {
     property var removed: []
     property int dragFrom: -1
     property real dragOffset: 0
+    ListModel { id: editRows }  // one placeholder per item while editing; moved, never rebuilt
+    function startEdit() {
+        items = list.slice(); removed = []
+        editRows.clear(); for (var i = 0; i < items.length; i++) editRows.append({})
+        editing = true
+    }
     title: name
     largeTitle: false
     titleAfter: 300
@@ -27,7 +33,7 @@ Page {
         TextButton {
             visible: !page.playlist.smart && page.list.length > 0 && !page.saving
             text: page.editing ? "Done" : "Edit"; bold: page.editing
-            tap: () => { if (page.editing) page.commit(); else { page.items = page.list.slice(); page.removed = []; page.editing = true } }
+            tap: () => { if (page.editing) page.commit(); else page.startEdit() }
         },
         IconButton {
             visible: !page.editing
@@ -60,11 +66,11 @@ Page {
         PlayShuffle { visible: !page.editing; play: () => player.playTracks(page.list, 0, false); shuffle: () => player.playTracks(page.list, -1, true) }
         LoadState { fetch: tracksFetch }
     }
-    model: editing ? items : list
+    model: editing ? editRows : list
     delegate: TrackRow {
         id: row
-        required property var modelData
         required property int index
+        readonly property var modelData: (page.editing ? page.items : page.list)[index] || ({})
         track: modelData
         z: page.editing && page.dragFrom === index ? 2 : 0
         dragging: page.editing && page.dragFrom === index
@@ -78,8 +84,8 @@ Page {
             width: 24; height: 24; radius: 12; color: Ios.red
             Rectangle { anchors.centerIn: parent; width: 11; height: 2; color: "white" }
             Pressable { anchors.fill: parent; tap: () => {
-                var it = page.items.slice(); var t = it.splice(row.index, 1)[0]
-                page.removed = page.removed.concat([t]); page.items = it
+                var it = page.items.slice(), i = row.index, t = it.splice(i, 1)[0]
+                page.removed = page.removed.concat([t]); page.items = it; editRows.remove(i)
             } }
         }
         trailing: Item {
@@ -89,6 +95,7 @@ Page {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.SizeVerCursor
+                preventStealing: true
                 property real lastY: 0
                 onPressed: (e) => { page.dragFrom = row.index; page.dragOffset = 0; lastY = mapToItem(page, e.x, e.y).y }
                 onPositionChanged: (e) => {
@@ -96,8 +103,8 @@ Page {
                     var y = mapToItem(page, e.x, e.y).y
                     page.dragOffset += y - lastY; lastY = y
                     var it = page.items, i = page.dragFrom, h = row.height
-                    if (page.dragOffset > h / 2 && i < it.length - 1) { it = it.slice(); it.splice(i + 1, 0, it.splice(i, 1)[0]); page.dragFrom = i + 1; page.dragOffset -= h; page.items = it }
-                    else if (page.dragOffset < -h / 2 && i > 0) { it = it.slice(); it.splice(i - 1, 0, it.splice(i, 1)[0]); page.dragFrom = i - 1; page.dragOffset += h; page.items = it }
+                    if (page.dragOffset > h / 2 && i < it.length - 1) { it = it.slice(); it.splice(i + 1, 0, it.splice(i, 1)[0]); editRows.move(i, i + 1, 1); page.dragFrom = i + 1; page.dragOffset -= h; page.items = it }
+                    else if (page.dragOffset < -h / 2 && i > 0) { it = it.slice(); it.splice(i - 1, 0, it.splice(i, 1)[0]); editRows.move(i, i - 1, 1); page.dragFrom = i - 1; page.dragOffset += h; page.items = it }
                 }
                 onReleased: { page.dragFrom = -1; page.dragOffset = 0 }
             }

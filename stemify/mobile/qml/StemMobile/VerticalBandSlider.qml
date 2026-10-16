@@ -25,6 +25,7 @@ Item {
         color: "white"; border.width: Ios.thumbBorder.a > 0 ? 0.5 : 0; border.color: Ios.thumbBorder
     }
     MouseArea {
+        preventStealing: true  // a scrolling list around it must not take the drag
         anchors.fill: parent
         cursorShape: Qt.SizeVerCursor
         property real startY: 0

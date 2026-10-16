@@ -9,6 +9,16 @@ Column {
     readonly property int base: player.queueInfo.index + 1
     property int dragFrom: -1
     property real dragOffset: 0
+    // One placeholder row per upcoming song; rows read their song by index. Reordering moves rows
+    // instead of rebuilding the list, so the row under the pointer keeps its drag.
+    ListModel { id: rows }
+    function sync() {
+        if (dragFrom >= 0) return
+        while (rows.count > upcoming.length) rows.remove(rows.count - 1)
+        while (rows.count < upcoming.length) rows.append({})
+    }
+    onUpcomingChanged: sync()
+    Component.onCompleted: sync()
 
     RowLayout {
         x: 24
@@ -29,13 +39,13 @@ Column {
         width: q.width
         height: q.height - 52
         clip: true
-        model: q.upcoming
+        model: rows
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { width: 6; contentItem: Rectangle { implicitWidth: 3; radius: 1.5; color: q.pal.label3; opacity: parent.active ? 0.9 : 0 } }
         delegate: Item {
             id: row
-            required property var modelData
             required property int index
+            readonly property var modelData: q.upcoming[index] || ({})
             readonly property bool dragging: q.dragFrom === index
             width: list.width
             height: 60
@@ -58,8 +68,8 @@ Column {
                 Artwork { thumb: row.modelData.thumb || row.modelData._cover || ""; size: 44; corner: 5; pal: q.pal }
                 Column {
                     Layout.fillWidth: true
-                    Txt { width: parent.width; text: row.modelData.title; pal: q.pal }
-                    Txt { width: parent.width; text: row.modelData.artist; style: "subhead"; color: q.pal.label2 }
+                    Txt { width: parent.width; text: row.modelData.title || ""; pal: q.pal }
+                    Txt { width: parent.width; text: row.modelData.artist || ""; style: "subhead"; color: q.pal.label2 }
                 }
                 Item {
                     width: 44; height: 44
@@ -67,6 +77,7 @@ Column {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.SizeVerCursor
+                        preventStealing: true
                         property real lastY: 0
                         onPressed: (e) => { q.dragFrom = row.index; q.dragOffset = 0; lastY = mapToItem(q, e.x, e.y).y }
                         onPositionChanged: (e) => {
@@ -74,10 +85,10 @@ Column {
                             var y = mapToItem(q, e.x, e.y).y
                             q.dragOffset += y - lastY; lastY = y
                             var i = q.dragFrom
-                            if (q.dragOffset > 30 && i < q.upcoming.length - 1) { player.moveItem(q.base + i, q.base + i + 1); q.dragFrom = i + 1; q.dragOffset -= 60 }
-                            else if (q.dragOffset < -30 && i > 0) { player.moveItem(q.base + i, q.base + i - 1); q.dragFrom = i - 1; q.dragOffset += 60 }
+                            if (q.dragOffset > 30 && i < q.upcoming.length - 1) { rows.move(i, i + 1, 1); q.dragFrom = i + 1; q.dragOffset -= 60; player.moveItem(q.base + i, q.base + i + 1) }
+                            else if (q.dragOffset < -30 && i > 0) { rows.move(i, i - 1, 1); q.dragFrom = i - 1; q.dragOffset += 60; player.moveItem(q.base + i, q.base + i - 1) }
                         }
-                        onReleased: { q.dragFrom = -1; q.dragOffset = 0 }
+                        onReleased: { q.dragFrom = -1; q.dragOffset = 0; q.sync() }
                     }
                 }
             }

@@ -46,6 +46,7 @@ Item {
         border.color: s.pal.thumbBorder
     }
     MouseArea {
+        preventStealing: true  // a scrolling list around it must not take the drag
         anchors.fill: parent
         enabled: s.enabled
         cursorShape: Qt.PointingHandCursor

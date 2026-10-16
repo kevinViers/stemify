@@ -70,11 +70,11 @@ Window {
                 pushEnter: Transition { XAnimator { from: sv.width; to: 0; duration: 380; easing.type: Easing.OutCubic } }
                 pushExit: Transition {
                     XAnimator { from: 0; to: -0.3 * sv.width; duration: 380; easing.type: Easing.OutCubic }
-                    OpacityAnimator { from: 1; to: 0.82; duration: 380 }
+                    NumberAnimation { property: "opacity"; from: 1; to: 0.82; duration: 380 }
                 }
                 popEnter: Transition {
                     XAnimator { from: -0.3 * sv.width; to: 0; duration: 320; easing.type: Easing.OutCubic }
-                    OpacityAnimator { from: 0.82; to: 1; duration: 320 }
+                    NumberAnimation { property: "opacity"; from: 0.82; to: 1; duration: 320 }
                 }
                 popExit: Transition { XAnimator { from: 0; to: sv.width; duration: 320; easing.type: Easing.OutCubic } }
             }

@@ -59,6 +59,7 @@ Column {
             }
         }
         MouseArea {
+            preventStealing: true  // a scrolling list around it must not take the drag
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
             property int axis: 0  // 1 seek, 2 volume

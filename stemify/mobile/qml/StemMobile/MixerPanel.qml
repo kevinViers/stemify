@@ -62,32 +62,34 @@ Flickable {
             }
         }
         Repeater {
-            model: m.stems
+            model: m.stems.length  // a count, so rows survive level changes mid-drag
             Column {
+                id: row
                 width: col.width
+                readonly property var st: m.stems[index] || ({})
                 topPadding: 10
-                readonly property color stemColor: Ios.stemColors[modelData.name] || "#8E8E93"
+                readonly property color stemColor: Ios.stemColors[row.st.name] || "#8E8E93"
                 Row {
                     width: parent.width
                     height: 26
                     spacing: 0
-                    Rectangle { width: 10; height: 10; radius: 5; color: modelData.muted ? m.pal.label3 : parent.parent.stemColor; anchors.verticalCenter: parent.verticalCenter }
+                    Rectangle { width: 10; height: 10; radius: 5; color: row.st.muted ? m.pal.label3 : row.stemColor; anchors.verticalCenter: parent.verticalCenter }
                     Item { width: 8; height: 1 }
                     Txt {
                         width: parent.width - 18 - pct.width - 10 - (m.hasStems ? 72 : 0)
-                        text: modelData.label; style: "headline"; color: modelData.muted ? m.pal.label2 : m.pal.label
+                        text: row.st.label; style: "headline"; color: row.st.muted ? m.pal.label2 : m.pal.label
                         anchors.verticalCenter: parent.verticalCenter
                     }
-                    Txt { id: pct; text: Math.round(Math.pow(Math.max(0, Math.min(1, modelData.level)) / 0.8, 2) * 100) + "%"; style: "footnote"; tnum: true; color: m.pal.label2; anchors.verticalCenter: parent.verticalCenter }
+                    Txt { id: pct; text: Math.round(Math.pow(Math.max(0, Math.min(1, row.st.level)) / 0.8, 2) * 100) + "%"; style: "footnote"; tnum: true; color: m.pal.label2; anchors.verticalCenter: parent.verticalCenter }
                     Item { width: 10; height: 1 }
-                    ToggleBox { visible: m.hasStems; text: "M"; on: modelData.muted; onColor: m.pal.red; pal: m.pal; tap: () => player.toggleMute(index) }
+                    ToggleBox { visible: m.hasStems; text: "M"; on: row.st.muted; onColor: m.pal.red; pal: m.pal; tap: () => player.toggleMute(index) }
                     Item { visible: m.hasStems; width: 6; height: 1 }
-                    ToggleBox { visible: m.hasStems; text: "S"; on: modelData.solo; onColor: Ios.yellow; pal: m.pal; tap: () => player.toggleSolo(index) }
+                    ToggleBox { visible: m.hasStems; text: "S"; on: row.st.solo; onColor: Ios.yellow; pal: m.pal; tap: () => player.toggleSolo(index) }
                 }
                 IosSlider {
                     width: parent.width
-                    value: modelData.level
-                    fill: modelData.muted ? m.pal.label3 : parent.stemColor
+                    value: row.st.level
+                    fill: row.st.muted ? m.pal.label3 : row.stemColor
                     detent: 0.8
                     thumb: 24
                     pal: m.pal
@@ -99,7 +101,7 @@ Flickable {
                     readonly property real lv: m.levels[index] || 0
                     Rectangle { x: 12; width: parent.width - 24; height: 3; radius: 1.5; color: m.pal.fill }
                     Rectangle {
-                        x: 12; height: 3; radius: 1.5; color: parent.parent.stemColor
+                        x: 12; height: 3; radius: 1.5; color: row.stemColor
                         width: (parent.width - 24) * Math.min(1, Math.max(0, (20 * Math.log10(parent.lv + 1e-5) + 48) / 48))
                     }
                 }

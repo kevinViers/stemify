@@ -36,6 +36,7 @@ Page {
                     chain: page.chain; preamp: 0; active: !!eq.info.enabled && !!page.f && page.f.on
                     nodes: page.profile.filters || []; highlight: page.f; labels: true
                     MouseArea {
+                        preventStealing: true  // a scrolling list around it must not take the drag
                         anchors.fill: parent
                         cursorShape: Qt.SizeAllCursor
                         function apply(e) {

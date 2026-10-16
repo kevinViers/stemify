@@ -33,6 +33,7 @@ Item {
         }
     }
     MouseArea {
+        preventStealing: true  // a scrolling list around it must not take the drag
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onPressed: (e) => idx.jump(e.y)
