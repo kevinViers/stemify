@@ -218,14 +218,16 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                     position, duration, env, master, onSeek = pm::seekTo, onVolume = pm::setMaster,
                     played = c.label, unplayed = c.label3, centerLabel = badge,
                 )
-                // Transport.
+                // Transport, with 10-second skips outside the track buttons.
                 Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(Sym.backward, pm::previous, tint = c.label, size = 38.dp, box = 72.dp)
+                    IconButton(Sym.gobackward10, { pm.skipBy(-10_000) }, tint = c.label, size = 30.dp, box = 52.dp)
+                    IconButton(Sym.backward, pm::previous, tint = c.label, size = 38.dp, box = 64.dp)
                     Box(Modifier.size(80.dp).pressFade(onClick = pm::togglePlay), contentAlignment = Alignment.Center) {
                         if (buffering && playing) Spinner(size = 34.dp, color = c.label)
                         else Icon(if (playing) Sym.pause else Sym.play, c.label, size = 52.dp)
                     }
-                    IconButton(Sym.forward, pm::next, tint = c.label, size = 38.dp, box = 72.dp)
+                    IconButton(Sym.forward, pm::next, tint = c.label, size = 38.dp, box = 64.dp)
+                    IconButton(Sym.goforward10, { pm.skipBy(10_000) }, tint = c.label, size = 30.dp, box = 52.dp)
                 }
                 // Bottom row: stems, output route, queue.
                 Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {

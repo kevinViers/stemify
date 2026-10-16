@@ -58,7 +58,7 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
 - **stemserve** hands the finished stems to your devices over HTTP, with seeking, waveforms and
   optional Opus transcodes so your phone storage doesn't cry.
 - **Plex** stays in charge of what it's good at: your library, metadata, artwork and playlists.
-- **The apps** (Android, Android Auto, and two desktop apps) play everything, and quietly fall back
+- **The apps** (Android, Android Auto, and three desktop apps) play everything, and quietly fall back
   to the original file for any song that hasn't been separated yet. Nothing is ever unplayable.
 
 ---
@@ -90,6 +90,8 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
   export them. Material layout meets Windows 7 Aero glass, running at 240 Hz because why not.
 - **Stemify Player**: your Plex library and its stems, with full mixing... dressed up as
   Microsoft Excel 2016. Yes, really. Your boss will think you're working on the quarterly numbers.
+- **Stemify Mobile**: the phone app, on your desktop. Same screens, same mixer, same EQ (with
+  profiles for your speakers, headphones and Bluetooth), same downloads.
 
 **On the server**
 - **stemd** separates everything automatically with BS-RoFormer SW (6 stems) on an NVIDIA GPU,
@@ -229,7 +231,8 @@ elsewhere in `pyproject.toml`.
 uv sync
 uv run stemify                # the drag-and-drop separator
 uv run stemify-player         # the Excel-shaped music player
-./scripts/install-desktop.sh # adds both to your app grid ("--uninstall" removes them)
+uv run stemify-mobile         # the phone app, on the desktop
+./scripts/install-desktop.sh # adds all three to your app grid ("--uninstall" removes them)
 ```
 
 ---
@@ -249,8 +252,8 @@ they're done. Those songs still play, just from the original file.
 - **Add to Playlist** (playlists can even go into other playlists)
 - **Stem Now**, while any of it lacks stems
 
-**The Now Playing screen** has the waveform seek bar, the mixer (faders, mute, solo, mix presets,
-meters, master volume) and the queue. Your mix can carry over from song to song or reset each
+**The Now Playing screen** has the waveform seek bar, 10-second skip buttons beside previous and
+next, the mixer (faders, mute, solo, mix presets, meters, master volume) and the queue. Your mix can carry over from song to song or reset each
 time, your choice.
 
 **Downloads** are proper offline copies: every stem fully fetched (or the original file for songs
@@ -383,6 +386,23 @@ It reports plays to Plex, supports media keys and desktop media controls (MPRIS)
 your queue, position and mix between launches. The full tour is in
 [`stemify/player/README.md`](stemify/player/README.md).
 
+### Stemify Mobile (the phone app, on the desktop)
+
+For when you'd rather your computer looked like your phone than like a spreadsheet. Every tab,
+page and sheet of the Android app, in a window: On This Day, the mixer and its meters, the
+waveform seek bar, Stem Now, playlists you can reorder, downloads, Stem Quality, the Black /
+Dark / White themes and album-colour Now Playing.
+
+- **The Equalizer** is the phone's, maths and all: 10 bands, parametric filters, APO / AutoEQ
+  paste and copy, anti-clipping, and profiles that switch with the output (speakers, headphones,
+  each Bluetooth headset, USB DAC, HDMI) as PipeWire moves your audio around.
+- **Desktop habits:** right-click is the long press, Esc (or the mouse's back button) goes back,
+  scroll on the seek bar for volume, Space plays and pauses, and ← / → skip 10 seconds.
+- **Mounted shares** play straight off the disk; otherwise stems stream from stemserve at your
+  Stem Quality. It shares your Plex sign-in with Stemify Player on first launch.
+
+More in [`stemify/mobile/README.md`](stemify/mobile/README.md).
+
 ---
 
 ## Separation models
@@ -462,6 +482,7 @@ testing (`app/src/debug`); release builds don't.
 
 ```sh
 QT_QPA_PLATFORM=offscreen uv run stemify-player --no-mpris --screenshot /tmp/p.png@5 --quit-after 6
+QT_QPA_PLATFORM=offscreen uv run stemify-mobile --no-mpris --screenshot /tmp/m.png@5 --quit-after 6
 ```
 
 ---
@@ -488,7 +509,8 @@ server/
   *.Dockerfile, docker-compose.yml
 stemify/              the desktop separator (PySide6 + QML) and shared separation code
   worker/                separation backends (Demucs, RoFormer) in a separate process
-  player/                Stemify Player, the Excel-shaped one
+  player/                Stemify Player, the Excel-shaped one (its engine, Plex and stemserve clients are shared)
+  mobile/                Stemify Mobile, the phone app on the desktop: its screens in QML, the EQ, downloads
   library_core.py        the folder layout rules shared with stemd
 scripts/install-desktop.sh
 specs.txt                the original design doc for the desktop separator

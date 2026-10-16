@@ -57,6 +57,7 @@ def _album(m: dict) -> dict:
         "thumb": m.get("thumb", ""),
         "addedAt": m.get("addedAt") or 0,
         "genre": ", ".join(g.get("tag", "") for g in (m.get("Genre") or [])[:2]),
+        "released": (m.get("originallyAvailableAt") or "")[:10],
     }
 
 
@@ -84,8 +85,9 @@ def _playlist(m: dict) -> dict:
 
 
 class Plex:
-    def __init__(self, config):
+    def __init__(self, config, product=PRODUCT):
         self.cfg = config
+        self.product = product
 
     @property
     def base(self):
@@ -106,13 +108,13 @@ class Plex:
     def _headers(self, token=None):
         h = {
             "Accept": "application/json",
-            "X-Plex-Product": PRODUCT,
+            "X-Plex-Product": self.product,
             "X-Plex-Version": "1.0",
             "X-Plex-Client-Identifier": self.cfg["clientId"],
             "X-Plex-Platform": "Linux",
             "X-Plex-Platform-Version": platform.release(),
             "X-Plex-Device": "Desktop",
-            "X-Plex-Device-Name": f"{PRODUCT} ({platform.node()})",
+            "X-Plex-Device-Name": f"{self.product} ({platform.node()})",
         }
         if token:
             h["X-Plex-Token"] = token
@@ -181,8 +183,30 @@ class Plex:
     def tracks(self, progress=None):
         return [_track(m) for m in self.all(f"/library/sections/{self.section}/all", progress, type=10, sort="titleSort")]
 
-    def albums(self):
-        return [_album(m) for m in self.all(f"/library/sections/{self.section}/all", type=9, sort="titleSort")]
+    def albums(self, sort="titleSort"):
+        return [_album(m) for m in self.all(f"/library/sections/{self.section}/all", type=9, sort=sort)]
+
+    def tracks_page(self, start, size):
+        """One page of every track by title, and the library's track count."""
+        c = self.get(f"/library/sections/{self.section}/all", start=start, size=size, type=10, sort="titleSort")
+        return [_track(m) for m in c.get("Metadata") or []], c.get("totalSize") or c.get("size") or 0
+
+    def album(self, key):
+        items = self.get(f"/library/metadata/{key}").get("Metadata") or []
+        return _album(items[0]) if items else None
+
+    def artist_albums(self, key):
+        # Not /library/metadata/<artist>/children: that leaves out compilations and singles.
+        return [_album(m) for m in self.all(f"/library/sections/{self.section}/all", type=9, **{"artist.id": key})]
+
+    def search(self, query):
+        hubs = self.get("/hubs/search", query=query, limit=12, sectionId=self.section).get("Hub") or []
+
+        def hub(kind):
+            return next((h.get("Metadata") or [] for h in hubs if h.get("type") == kind), [])
+        return {"artists": [_artist(m) for m in hub("artist")], "albums": [_album(m) for m in hub("album")],
+                "tracks": [_track(m) for m in hub("track")],
+                "playlists": [_playlist(m) for m in hub("playlist") if m.get("playlistType") == "audio"]}
 
     def artists(self):
         return [_artist(m) for m in self.all(f"/library/sections/{self.section}/all", type=8, sort="titleSort")]
@@ -228,6 +252,16 @@ class Plex:
 
     def remove_from_playlist(self, key, item_id):
         self.send("DELETE", f"/playlists/{key}/items/{item_id}")
+
+    def move_playlist_item(self, key, item_id, after_id=None):
+        """Moves an item to just after [after_id], or to the top."""
+        self.send("PUT", f"/playlists/{key}/items/{item_id}/move", after=after_id)
+
+    def rename_playlist(self, key, title):
+        self.send("PUT", f"/playlists/{key}", title=title)
+
+    def delete_playlist(self, key):
+        self.send("DELETE", f"/playlists/{key}")
 
     # ---- reporting ---------------------------------------------------------------
     def scrobble(self, key):

@@ -22,6 +22,8 @@ AHEAD = 1.5  # seconds buffered ahead of the playhead
 BLOCK = 1024
 LATENCY = 0.15  # roomy: Python shares the GIL with library loading
 RING = 64
+MAX_STEMS = 8  # per-stem levels kept per block, for meters
+CEILING = 0.985  # limiter: just under full scale
 
 
 class SfReader:
@@ -167,7 +169,9 @@ class PlayerEngine(QObject):
         self._underrun = False
         self._mix = np.zeros((BLOCK * 8, 2), np.float32)
         self._ramp = np.zeros(0, np.float32)
-        self._ring = np.zeros((RING, 4), np.float64)
+        self._ring = np.zeros((RING, 4 + MAX_STEMS), np.float64)
+        self._eq = None  # object with process(buf, sr), swapped in whole from the GUI thread
+        self._lim = 1.0
         self._ring_i = 0
         self._thread = threading.Thread(target=self._decode_loop, daemon=True, name="decoder")
         self._thread.start()
@@ -288,6 +292,10 @@ class PlayerEngine(QObject):
             self._restart_locked(int(seconds * self._sr))
         self._ended_flag = False
 
+    def set_eq(self, eq):
+        """Inserts an equalizer after the mixer (None bypasses it)."""
+        self._eq = eq
+
     def set_gains(self, gains):
         g = np.asarray(gains, np.float32)
         if len(g) == len(self._gains):
@@ -353,6 +361,7 @@ class PlayerEngine(QObject):
         if ramping and len(self._ramp) != frames:
             self._ramp = np.linspace(0.0, 1.0, frames, dtype=np.float32)
         q = self._queue
+        lv = np.zeros(len(g1), np.float32)
         while self._playing and filled < frames:
             if self._cur is None:
                 if not q:
@@ -373,6 +382,8 @@ class PlayerEngine(QObject):
                 mix[filled:filled + take] += np.einsum("kt,ktc->tc", w, seg)
             else:
                 mix[filled:filled + take] += np.tensordot(g1, seg, axes=(0, 0))
+            if take:
+                np.maximum(lv, np.abs(seg).max(axis=(1, 2)) * np.abs(g1), out=lv)
             filled += take
             self._cur_off = off + take
             if self._cur_off >= cur.shape[1]:
@@ -381,12 +392,16 @@ class PlayerEngine(QObject):
         self._underrun = filled < frames and not self._ended_flag
         self._pos = start_pos + filled
         self._consumed += filled
+        eq = self._eq
+        if eq is not None and filled:
+            eq.process(mix, self._sr)
         m0, m1 = self._master_cur, self._master
         if m0 != m1:
             mix *= np.linspace(m0, m1, frames, dtype=np.float32)[:, None]
             self._master_cur = m1
         elif m1 != 1.0:
             mix *= m1
+        self._limit(mix, frames)
         outdata[:] = mix
         if filled and len(q) < 3:
             with self._cond:
@@ -397,7 +412,30 @@ class PlayerEngine(QObject):
             dac = self._stream.time + self._stream.latency
         r = self._ring[self._ring_i % RING]
         r[0], r[1], r[2], r[3] = dac, start_pos, peak[0], peak[1]
+        n = min(len(lv), MAX_STEMS)
+        r[4:4 + n] = lv[:n]
+        r[4 + n:] = 0
         self._ring_i += 1
+
+    def _limit(self, mix, frames):
+        """Peak limiter on the master bus, so stems pushed past unity or an EQ boost never clip:
+        it drops within a few samples when a block would clip, and recovers over ~120 ms."""
+        g0 = self._lim
+        peak = float(np.abs(mix).max()) if frames else 0.0
+        need = CEILING / peak if peak > CEILING else 1.0
+        if need < g0:
+            g1 = need
+            ramp = np.full(frames, g1, np.float32)
+            k = min(frames, 32)
+            ramp[:k] = np.linspace(g0, g1, k, dtype=np.float32)
+        else:
+            g1 = min(need, g0 + (1.0 - g0) * (1.0 - np.exp(-frames / (0.12 * self._sr))))
+            if g0 == 1.0 and g1 == 1.0:
+                return
+            ramp = np.linspace(g0, g1, frames, dtype=np.float32)
+        mix *= ramp[:, None]
+        np.clip(mix, -CEILING, CEILING, out=mix)
+        self._lim = g1
 
     def _heard_frame(self):
         """Interpolates the frame at the DAC from the per-block timestamps."""
@@ -426,6 +464,17 @@ class PlayerEngine(QObject):
             return [pos, 0.0, 0.0]
         last = played[np.argmax(played[:, 0])]
         return [pos, float(last[2]), float(last[3])]
+
+    @Slot(result="QVariantList")
+    def levels(self):
+        """Per-stem peak levels (after faders) of the block at the DAC now."""
+        if not self._playing or self._stream is None:
+            return []
+        ring = self._ring
+        played = ring[(ring[:, 0] > 0) & (ring[:, 0] <= self._stream.time)]
+        if not len(played):
+            return []
+        return [float(v) for v in played[np.argmax(played[:, 0])][4:]]
 
     def position(self):
         return self._heard_frame() / self._sr if self._src is not None else 0.0

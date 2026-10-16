@@ -28,6 +28,14 @@ DEFAULTS = {
 }
 
 
+def use(name: str, defaults: dict | None = None):
+    """Points load/save and the cache at <name> instead of the player's (one app per process)."""
+    global PATH, CACHE_DIR
+    PATH = os.path.join(CONFIG_DIR, f"{name}.json")
+    CACHE_DIR = os.path.join(os.path.dirname(CACHE_DIR), name)
+    DEFAULTS.update(defaults or {})
+
+
 def load() -> dict:
     cfg = dict(DEFAULTS)
     try:

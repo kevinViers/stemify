@@ -8,6 +8,7 @@ dependencies = [
     "numpy>=2.0",
     "soundfile>=0.13",
     "sounddevice>=0.5",
+    "scipy>=1.11",
     "torch==2.14.1",
     "triton-rocm",
     "torchvision",
@@ -20,6 +21,7 @@ dependencies = [
 stemify = "stemify.app:main"
 stemify-worker-cli = "stemify.worker.cli:main"
 stemify-player = "stemify.player.app:main"
+stemify-mobile = "stemify.mobile.app:main"
 
 [tool.uv]
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

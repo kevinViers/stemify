@@ -100,6 +100,34 @@ class StemServer:
             h["X-Stem-Token"] = self.cfg["stemToken"]
         return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
 
+    def info(self):
+        """/api/info: song count and whether it can transcode to Opus (ffmpeg)."""
+        with self._open(self.base + "/api/info", timeout=6) as r:
+            return json.loads(r.read())
+
+    def stem_now(self, paths):
+        """Stem Now: stemd separates these Plex files before the rest of the library."""
+        req = urllib.request.Request(self.base + "/api/stem", data=json.dumps({"paths": paths}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json",
+                                              **({"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {})})
+        try:
+            urllib.request.urlopen(req, timeout=15).close()
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read()).get("error")
+            except ValueError:
+                msg = None
+            raise OSError("stemserve needs updating for Stem Now" if e.code == 404 else msg or f"stemserve answered {e.code}") from e
+
+    def prepare(self, entry, br):
+        """Starts the Opus transcodes on the server so they're ready when asked for."""
+        url = f"{self.base}/api/prepare?" + urllib.parse.urlencode({"key": entry["key"], "fmt": "opus", "br": br})
+        h = {"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {}
+        try:
+            urllib.request.urlopen(urllib.request.Request(url, data=b"", method="POST", headers=h), timeout=10).close()
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass
+
     def refresh(self):
         """Fetches the index (ETag-cached). Returns True if it changed."""
         headers = {}
@@ -107,7 +135,7 @@ class StemServer:
             with open(self._etag_file) as f:
                 headers["If-None-Match"] = f.read().strip()
         try:
-            with self._open(self.base + "/api/index", headers) as r:
+            with self._open(self.base + "/api/index", headers, timeout=60) as r:
                 body = r.read()
                 etag = r.headers.get("ETag")
         except urllib.error.HTTPError as e:
@@ -138,9 +166,10 @@ class StemServer:
         p = os.path.join(root, entry["key"], stem["file"]) if root else ""
         return p if p and os.path.exists(p) else None
 
-    def file_url(self, entry, stem):
+    def file_url(self, entry, stem, opus_kbps=0):
         path = "/".join(urllib.parse.quote(p) for p in entry["key"].split("/"))
-        return f"{self.base}/file/{path}/{urllib.parse.quote(stem['file'])}"
+        url = f"{self.base}/file/{path}/{urllib.parse.quote(stem['file'])}"
+        return url + f"?fmt=opus&br={opus_kbps}" if opus_kbps else url
 
     def peaks(self, entry, buckets):
         """Per-stem RMS envelopes (0..1), or None."""

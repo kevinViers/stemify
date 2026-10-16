@@ -346,6 +346,13 @@ class PlaybackManager(
         if (i in _queue.value.indices) load(i, positionMs, true)
     }
 
+    /** Jumps [deltaMs] back or ahead in the song; past the end is the next song. */
+    fun skipBy(deltaMs: Long) {
+        val d = _durationMs.value
+        val to = positionMs() + deltaMs
+        if (d > 0 && to >= d) next() else seekTo(to.coerceAtLeast(0))
+    }
+
     fun seekTo(ms: Long) {
         pendingPositionMs = ms.coerceAtLeast(0)
         if (currentToken >= 0) engine.seekTo(pendingPositionMs)

@@ -48,6 +48,7 @@ Filters page's ••• menu pastes an Equalizer APO config from the clipboard 
 
 The seek bar's waveform is scaled to each song's own range (its loud moments fill the bar,
 its quiet parts sit low), and the mixer's level meters follow what's audible at display rate.
+Either side of the previous and next buttons, Now Playing has 10-second skip back and ahead.
 
 ## How it fits together
 

@@ -27,8 +27,8 @@ class _Root(QDBusAbstractAdaptor):
     CanQuit = Property(bool, lambda self: True)
     CanRaise = Property(bool, lambda self: True)
     HasTrackList = Property(bool, lambda self: False)
-    Identity = Property(str, lambda self: "Stemify Player")
-    DesktopEntry = Property(str, lambda self: "stemify-player")
+    Identity = Property(str, lambda self: self.parent().identity)
+    DesktopEntry = Property(str, lambda self: self.parent().desktop_entry)
     SupportedUriSchemes = Property("QStringList", lambda self: [])
     SupportedMimeTypes = Property("QStringList", lambda self: [])
 
@@ -105,14 +105,16 @@ class _Player(QDBusAbstractAdaptor):
 
 
 class Mpris(QObject):
-    def __init__(self, player, engine, window_raise, quit_, parent=None):
+    def __init__(self, player, engine, window_raise, quit_, parent=None,
+                 identity="Stemify Player", desktop_entry="stemify-player"):
         super().__init__(parent)
         self.player, self.engine = player, engine
+        self.identity, self.desktop_entry = identity, desktop_entry
         self._root = _Root(self, window_raise, quit_)
         self._adaptor = _Player(self, self)
         self.bus = QDBusConnection.sessionBus()
         self.ok = self.bus.isConnected() and self.bus.registerObject(PATH, self) and \
-            self.bus.registerService("org.mpris.MediaPlayer2.stemify_player")
+            self.bus.registerService("org.mpris.MediaPlayer2." + desktop_entry.replace("-", "_"))
         self._last = {}
         player.changed.connect(self._changed)
         player.mixChanged.connect(self._changed)

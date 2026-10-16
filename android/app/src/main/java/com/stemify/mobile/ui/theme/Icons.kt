@@ -50,6 +50,14 @@ object Sym {
     val backward by lazy {
         icon("backward", f("M22.4 6.8v10.4c0 .8-.88 1.28-1.55.84l-7.95-5.2a1 1 0 0 1 0-1.68l7.95-5.2c.67-.44 1.55.04 1.55.84zm-11 0v10.4c0 .8-.88 1.28-1.55.84l-7.95-5.2a1 1 0 0 1 0-1.68l7.95-5.2c.67-.44 1.55.04 1.55.84z"))
     }
+    /** A circular arrow round a "10": skip back / ahead ten seconds. */
+    val gobackward10 by lazy {
+        icon("gobackward.10", s("M12 5a8 8 0 1 1-7.6 5.5M14 2.5L11.5 5 14 7.5", 1.8f), s(TEN, 1.6f))
+    }
+    val goforward10 by lazy {
+        icon("goforward.10", s("M12 5a8 8 0 1 0 7.6 5.5M10 2.5L12.5 5 10 7.5", 1.8f), s(TEN, 1.6f))
+    }
+    private const val TEN = "M8.9 11.2l1.3-.9v6.2M14.3 10.3c-1 0-1.65 1.25-1.65 3.1s.65 3.1 1.65 3.1 1.65-1.25 1.65-3.1-.65-3.1-1.65-3.1z"
     val chevronRight by lazy { icon("chevron.right", s("M9 4.5l7.5 7.5L9 19.5", 2.4f)) }
     val chevronLeft by lazy { icon("chevron.left", s("M15.5 4l-8 8 8 8", 2.6f)) }
     val search by lazy { icon("magnifyingglass", s("${circle(10.5f, 10.5f, 6.75f)}M15.6 15.6l5 5", 2.2f)) }
