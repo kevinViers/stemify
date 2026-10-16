@@ -1,3 +1,5 @@
+# BE FOREWARNED THIS IS 100% VIBE CODED WITH OPUS 5.5 ON HIGH EFFORT. PROCEED AT YOUR OWN RISK
+
 # Stemify
 
 **Your whole music library, taken apart and put back together however you like.**
