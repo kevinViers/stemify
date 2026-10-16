@@ -5,7 +5,7 @@ Rectangle {
     id: bs
     property var win: Window.window
     property string page: "info"
-    color: "#FFFFFF"
+    color: X.paper
 
     Rectangle {
         id: side
@@ -114,7 +114,7 @@ Rectangle {
                 visible: library.pin !== ""
                 width: 420
                 height: 150
-                color: "#F3F3F3"
+                color: X.paperAlt
                 border.color: X.ribbonLine
                 Column {
                     anchors.centerIn: parent
@@ -154,6 +154,12 @@ Rectangle {
             T { text: "Folders"; font.pixelSize: 20; color: X.greenText; height: 40; verticalAlignment: Text.AlignBottom }
             Opt { id: oStems; label: "Stems share (played directly when mounted)"; key: "stemsDir" }
             Opt { id: oMusic; label: "Music share"; key: "musicDir" }
+            T { text: "Office Theme"; font.pixelSize: 20; color: X.greenText; height: 40; verticalAlignment: Text.AlignBottom }
+            Row {
+                spacing: 10
+                OfficeButton { text: "Black"; primary: X.dark; onClicked: { X.dark = true; settings.set("officeTheme", "black") } }
+                OfficeButton { text: "Colorful"; primary: !X.dark; onClicked: { X.dark = false; settings.set("officeTheme", "colorful") } }
+            }
             Item { width: 1; height: 8 }
             Row {
                 spacing: 10

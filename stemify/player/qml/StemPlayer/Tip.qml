@@ -18,5 +18,5 @@ ToolTip {
         onTriggered: done = true
     }
     contentItem: T { text: tt.text; font.pixelSize: X.fsSmall; elide: Text.ElideNone }
-    background: Rectangle { color: "#FFFFFF"; border.color: "#BEBEBE" }
+    background: Rectangle { color: X.raised; border.color: X.borderStrong }
 }

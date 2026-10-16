@@ -101,6 +101,10 @@ Column {
                     RButton { icon: "stop"; text: "Stop"; onClicked: { engine.pause(); player.seek(0) } }
                 }
                 Column {
+                    RButton { icon: "back10"; text: "Back 10s"; tip: "Back 10 seconds (Ctrl+Shift+Left)"; onClicked: player.skipBy(-10) }
+                    RButton { icon: "fwd10"; text: "Ahead 10s"; tip: "Ahead 10 seconds (Ctrl+Shift+Right)"; onClicked: player.skipBy(10) }
+                }
+                Column {
                     RButton { icon: "shuffle"; text: "Shuffle"; checked: player.shuffleOn; onClicked: player.toggleShuffle() }
                     RButton {
                         icon: player.repeatMode === "one" ? "repeat_one" : "repeat"
@@ -141,7 +145,7 @@ Column {
                             opacity: modelData.usable ? 1 : 0.35
                             color: s.fill
                             border.width: modelData.active ? 2 : 1
-                            border.color: modelData.active ? X.green : (sm.containsMouse ? "#8A8A8A" : s.border)
+                            border.color: modelData.active ? X.accent : (sm.containsMouse ? X.borderStrong : s.border)
                             T {
                                 anchors.fill: parent
                                 anchors.leftMargin: 5

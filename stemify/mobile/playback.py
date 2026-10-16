@@ -123,20 +123,6 @@ class MobilePlayer(Player):
             self.shuffle = False
         self._queue_changed()
 
-    @Slot(float)
-    def skipBy(self, seconds):
-        """Jumps back or ahead in the song; past the end is the next song."""
-        d = self.engine.duration
-        if not d:
-            self._pending_seek = max(0.0, self._pending_seek + seconds)
-            return
-        to = self.engine.position() + seconds
-        if to >= d:
-            self.next()
-        else:
-            self.engine.seek(max(0.0, to))
-            self.changed.emit()
-
     def _get_upcoming(self):
         return [{k: t.get(k, "") for k in QUEUE_FIELDS} for t in self.queue[self.index + 1:]]
 

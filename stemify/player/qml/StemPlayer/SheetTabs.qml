@@ -55,10 +55,10 @@ Rectangle {
                     Rectangle {
                         anchors.fill: parent
                         anchors.topMargin: 0
-                        color: tb.active ? "#FFFFFF" : tm.containsMouse ? "#E5E5E5" : "transparent"
+                        color: tb.active ? X.paper : tm.containsMouse ? X.hoverSoft : "transparent"
                     }
-                    Rectangle { visible: !tb.active; anchors.right: parent.right; y: 6; width: 1; height: parent.height - 12; color: "#C8C8C8" }
-                    Rectangle { visible: tb.active; anchors.bottom: parent.bottom; width: parent.width; height: 3; color: X.green }
+                    Rectangle { visible: !tb.active; anchors.right: parent.right; y: 6; width: 1; height: parent.height - 12; color: X.borderSoft }
+                    Rectangle { visible: tb.active; anchors.bottom: parent.bottom; width: parent.width; height: 3; color: X.accent }
                     T {
                         id: lbl
                         anchors.centerIn: parent

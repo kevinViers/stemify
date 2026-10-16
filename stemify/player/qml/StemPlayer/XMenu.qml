@@ -34,15 +34,15 @@ Menu {
             }
         }
         background: Rectangle {
-            color: mi.highlighted && mi.enabled ? "#E0E0E0" : "transparent"
+            color: mi.highlighted && mi.enabled ? X.hoverSoft : "transparent"
         }
         arrow: null
         indicator: null
     }
     background: Rectangle {
         implicitWidth: 200
-        color: "#FFFFFF"
+        color: X.raised
         border.color: X.menuBorder
-        Rectangle { x: 25; y: 1; width: 1; height: parent.height - 2; color: "#E7E7E7" }
+        Rectangle { x: 25; y: 1; width: 1; height: parent.height - 2; color: X.borderSoft }
     }
 }

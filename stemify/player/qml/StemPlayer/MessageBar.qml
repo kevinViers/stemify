@@ -6,8 +6,8 @@ Rectangle {
     property string text: ""
     height: text ? 32 : 0
     visible: text !== ""
-    color: "#FFF4CE"
-    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#E6D9A8" }
+    color: X.msg
+    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: X.msgLine }
     Behavior on height { NumberAnimation { duration: X.easeMs } }
     function show(t) { text = t; hide.restart() }
     Timer { id: hide; interval: 6000; onTriggered: mb.text = "" }
@@ -23,7 +23,7 @@ Rectangle {
         anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
         width: 22
         height: 22
-        Rectangle { anchors.fill: parent; color: xm.containsMouse ? "#F2E2A6" : "transparent" }
+        Rectangle { anchors.fill: parent; color: xm.containsMouse ? X.msgHover : "transparent" }
         Ico { anchors.centerIn: parent; name: "close"; size: 18 }
         MouseArea { id: xm; anchors.fill: parent; hoverEnabled: true; onClicked: mb.text = "" }
     }

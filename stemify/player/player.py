@@ -241,6 +241,20 @@ class Player(QObject):
         self._load(self.index - 1, play=True)
 
     @Slot(float)
+    def skipBy(self, seconds):
+        """Jumps back or ahead in the song; past the end is the next song."""
+        d = self.engine.duration
+        if not d:
+            self._pending_seek = max(0.0, self._pending_seek + seconds)
+            return
+        to = self.engine.position() + seconds
+        if to >= d:
+            self.next()
+        else:
+            self.engine.seek(max(0.0, to))
+            self.changed.emit()
+
+    @Slot(float)
     def seek(self, seconds):
         if self.engine.duration:
             self.engine.seek(max(0.0, min(seconds, self.engine.duration - 0.25)))

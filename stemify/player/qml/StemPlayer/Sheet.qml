@@ -76,7 +76,7 @@ FocusScope {
                     color: parent.sel ? X.greenText : X.ink
                 }
                 Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: X.headerLine }
-                Rectangle { visible: parent.sel; anchors.bottom: parent.bottom; width: parent.width; height: 2; color: X.green }
+                Rectangle { visible: parent.sel; anchors.bottom: parent.bottom; width: parent.width; height: 2; color: X.accent }
                 MouseArea {
                     anchors.fill: parent
                     onClicked: if (index < g.cols.length) { win.anchorRow = 0; win.curRow = Math.max(0, g.rows - 1); win.curCol = win.anchorCol = index }
@@ -96,9 +96,11 @@ FocusScope {
             anchors { right: parent.right; bottom: parent.bottom; margins: 3 }
             width: 10
             height: 10
+            property bool dk: X.dark
+            onDkChanged: requestPaint()
             onPaint: {
                 var c = getContext("2d")
-                c.fillStyle = "#B4B4B4"
+                c.fillStyle = X.cornerMark
                 c.beginPath(); c.moveTo(10, 0); c.lineTo(10, 10); c.lineTo(0, 10); c.closePath(); c.fill()
             }
         }
@@ -146,7 +148,7 @@ FocusScope {
                         color: parent.sel ? X.greenText : X.ink
                     }
                     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: X.headerLine }
-                    Rectangle { anchors.right: parent.right; width: parent.sel ? 2 : 1; height: parent.height; color: parent.sel ? X.green : X.headerLine }
+                    Rectangle { anchors.right: parent.right; width: parent.sel ? 2 : 1; height: parent.height; color: parent.sel ? X.accent : X.headerLine }
                     MouseArea {
                         anchors.fill: parent
                         onClicked: (m) => { if (parent.r < g.rows) { g.moveTo(parent.r, 0, m.modifiers & Qt.ShiftModifier); if (!(m.modifiers & Qt.ShiftModifier)) win.anchorCol = 0; win.curCol = g.cols.length - 1 } }
@@ -166,7 +168,7 @@ FocusScope {
         height: parent.height - y
         clip: true
 
-        Rectangle { anchors.fill: parent; color: "#FFFFFF" }
+        Rectangle { anchors.fill: parent; color: X.paper }
 
         // the empty sheet: gridlines everywhere, under the cells
         Item {
@@ -228,8 +230,8 @@ FocusScope {
                         anchors { right: parent.right; rightMargin: 3; verticalCenter: parent.verticalCenter }
                         width: Math.round(15 * g.z100)
                         height: width
-                        color: fm.containsMouse ? "#F0F0F0" : "#FFFFFF"
-                        border.color: "#A0A0A0"
+                        color: fm.containsMouse ? X.hoverSoft : X.paper
+                        border.color: X.borderStrong
                         Ico {
                             anchors.centerIn: parent
                             size: Math.round(12 * g.z100)
@@ -278,7 +280,7 @@ FocusScope {
                 required property string cellStyle
                 required property bool playing
                 readonly property bool bar: cellStyle.indexOf("bar:") === 0
-                color: cellStyle === "good" ? X.good : (row % 2 === 1 ? X.tableBand : "#FFFFFF")
+                color: cellStyle === "good" ? X.good : (row % 2 === 1 ? X.tableBand : X.paper)
                 Rectangle {  // data bar
                     visible: cell.bar
                     x: 2
@@ -310,9 +312,11 @@ FocusScope {
                     visible: cell.playing && cell.column === 0
                     width: 7
                     height: 7
+                    property bool dk: X.dark
+                    onDkChanged: requestPaint()
                     onPaint: {
                         var c = getContext("2d")
-                        c.fillStyle = "#217346"
+                        c.fillStyle = X.accent
                         c.beginPath(); c.moveTo(0, 0); c.lineTo(7, 0); c.lineTo(0, 7); c.closePath(); c.fill()
                     }
                 }
@@ -330,7 +334,7 @@ FocusScope {
                 width: g.colX(Math.max(g.win.curCol, g.win.anchorCol) + 1) - x + 1
                 height: (g.win.selBottom - g.win.selTop + 1) * g.rowH + 1
                 color: range ? X.selFill : "transparent"
-                border.color: X.green
+                border.color: X.accent
                 border.width: 2
                 Rectangle {
                     // the active cell stays clear inside a range
@@ -339,7 +343,7 @@ FocusScope {
                     y: g.win.curRow * g.rowH - parent.y
                     width: g.colW(g.win.curCol)
                     height: g.rowH
-                    color: "#FFFFFF"
+                    color: X.paper
                     opacity: 0.6
                 }
                 Rectangle {
@@ -347,8 +351,8 @@ FocusScope {
                     y: parent.height - 4
                     width: 7
                     height: 7
-                    color: X.green
-                    border.color: "#FFFFFF"
+                    color: X.accent
+                    border.color: X.paper
                     border.width: 1
                 }
             }
@@ -413,10 +417,11 @@ FocusScope {
             width: 300
             height: note.implicitHeight + 16
             color: X.note
-            border.color: "#B2B2B2"
-            Rectangle { x: -30; y: 6; width: 30; height: 1; color: "#000000" }
+            border.color: X.borderStrong
+            Rectangle { x: -30; y: 6; width: 30; height: 1; color: X.cellText }
             Text {
                 id: note
+                color: X.ink
                 x: 8
                 y: 8
                 width: parent.width - 16
@@ -439,8 +444,8 @@ FocusScope {
         switch (e.key) {
         case Qt.Key_Down: g.moveTo(ctrl ? g.rows - 1 : win.curRow + 1, win.curCol, ext); break
         case Qt.Key_Up: g.moveTo(ctrl ? 0 : win.curRow - 1, win.curCol, ext); break
-        case Qt.Key_Right: if (ctrl) { player.next(); break } g.moveTo(win.curRow, win.curCol + 1, ext); break
-        case Qt.Key_Left: if (ctrl) { player.previous(); break } g.moveTo(win.curRow, win.curCol - 1, ext); break
+        case Qt.Key_Right: if (ctrl && (e.modifiers & Qt.ShiftModifier)) { player.skipBy(10); break } if (ctrl) { player.next(); break } g.moveTo(win.curRow, win.curCol + 1, ext); break
+        case Qt.Key_Left: if (ctrl && (e.modifiers & Qt.ShiftModifier)) { player.skipBy(-10); break } if (ctrl) { player.previous(); break } g.moveTo(win.curRow, win.curCol - 1, ext); break
         case Qt.Key_Tab: g.moveTo(win.curRow, win.curCol + 1, false); break
         case Qt.Key_PageDown: g.moveTo(win.curRow + page, win.curCol, ext); break
         case Qt.Key_PageUp: g.moveTo(win.curRow - page, win.curCol, ext); break

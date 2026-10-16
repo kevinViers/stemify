@@ -9,7 +9,7 @@ Window {
     minimumHeight: 600
     visible: true
     title: (player.track.title ? player.track.title + " - " + player.track.artist : "Book1") + ".xlsx - Excel"
-    color: "#FFFFFF"
+    color: X.paper
     flags: Qt.Window | Qt.FramelessWindowHint
 
     readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
@@ -50,7 +50,7 @@ Window {
             cellTimer.restart()
         }
     }
-    Component.onCompleted: refreshCell()
+    Component.onCompleted: { X.dark = settings.get("officeTheme") !== "colorful"; refreshCell() }
 
     // ---- view options ----
     property bool showMixer: settings.get("showMixer") !== false
@@ -106,6 +106,8 @@ Window {
     Shortcut { sequence: "Media Play"; onActivated: player.toggle() }
     Shortcut { sequence: "Ctrl+Right"; context: Qt.ApplicationShortcut; enabled: !grid.activeFocus; onActivated: player.next() }
     Shortcut { sequence: "Ctrl+Left"; context: Qt.ApplicationShortcut; enabled: !grid.activeFocus; onActivated: player.previous() }
+    Shortcut { sequence: "Ctrl+Shift+Right"; context: Qt.ApplicationShortcut; enabled: !grid.activeFocus; onActivated: player.skipBy(10) }
+    Shortcut { sequence: "Ctrl+Shift+Left"; context: Qt.ApplicationShortcut; enabled: !grid.activeFocus; onActivated: player.skipBy(-10) }
     Shortcut { sequence: "Alt+Left"; onActivated: library.back() }
     Shortcut { sequence: "F1"; onActivated: win.openBackstage("info") }
 
@@ -153,13 +155,13 @@ Window {
         padding: 0
         onOpened: { plName.text = ""; plName.forceActiveFocus() }
         onClosed: win.focusGrid()
-        background: Rectangle { color: "#FFFFFF"; border.color: "#7A7A7A" }
+        background: Rectangle { color: X.raised; border.color: X.borderStrong }
         Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.12) }
         contentItem: Column {
             Rectangle {
                 width: parent.width
                 height: 30
-                color: "#FFFFFF"
+                color: X.raised
                 T { x: 10; height: parent.height; text: "New Playlist" }
                 Ico { anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; name: "close"; size: 18
                     MouseArea { anchors.fill: parent; onClicked: plDialog.close() } }

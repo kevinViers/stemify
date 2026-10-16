@@ -368,8 +368,8 @@ Other niceties:
 
 ### Stemify Player (the spreadsheet)
 
-The desktop sibling of the phone app, disguised as Microsoft Excel 2016. Some highlights from the
-translation guide:
+The desktop sibling of the phone app, disguised as Microsoft Excel 2016 in its Black Office theme
+(Colorful is in File → Options). Some highlights from the translation guide:
 
 | In Excel | In Stemify Player |
 |---|---|

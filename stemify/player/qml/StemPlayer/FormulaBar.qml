@@ -5,7 +5,7 @@ Rectangle {
     id: fb
     property var win: Window.window
     height: 30
-    color: "#FFFFFF"
+    color: X.paper
     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: X.ribbonLine }
 
     Rectangle {
@@ -14,7 +14,8 @@ Rectangle {
         y: 4
         width: 110
         height: 22
-        border.color: "#C6C6C6"
+        color: X.paper
+        border.color: X.borderSoft
         T {
             x: 5
             height: parent.height
@@ -37,14 +38,15 @@ Rectangle {
         y: 4
         width: parent.width - x - 6
         height: 22
-        border.color: "#C6C6C6"
+        color: X.paper
+        border.color: X.borderSoft
         T {
             x: 6
             width: parent.width - 12
             height: parent.height
             font.family: cellFont
             font.pixelSize: 14
-            color: "#000000"
+            color: X.cellText
             text: fb.win.formulaText
         }
     }

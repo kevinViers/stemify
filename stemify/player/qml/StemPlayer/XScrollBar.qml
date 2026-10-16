@@ -12,7 +12,7 @@ ScrollBar {
     contentItem: Rectangle {
         implicitWidth: 9
         implicitHeight: 9
-        color: sb.pressed ? "#7A7A7A" : sb.hovered ? "#A6A6A6" : "#C2C2C2"
+        color: sb.pressed ? X.scrollPress : sb.hovered ? X.scrollHover : X.scrollThumb
     }
-    background: Rectangle { color: "#F0F0F0"; border.color: "#E0E0E0" }
+    background: Rectangle { color: X.scrollBg; border.color: X.scrollLine }
 }

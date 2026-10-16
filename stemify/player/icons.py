@@ -21,6 +21,10 @@ ICONS = {
     "pause": '<path fill="{ink}" d="M8 5h6v22H8zM18 5h6v22h-6z"/>',
     "stop": '<rect fill="{ink}" x="7" y="7" width="18" height="18" rx="1"/>',
     "previous": '<path fill="{ink}" d="M6 6h3v20H6z"/><path fill="{ink}" d="M27 6v20L11 16z"/>',
+    "back10": '<path fill="none" stroke="{ink}" stroke-width="2.4" d="M16 6a10 10 0 1 1-9.5 6.9"/><path fill="{ink}" d="M18.5 1.5v9l-6-4.5z"/>'
+              '<text x="16" y="21.5" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="9" fill="{ink}">10</text>',
+    "fwd10": '<path fill="none" stroke="{ink}" stroke-width="2.4" d="M16 6a10 10 0 1 0 9.5 6.9"/><path fill="{ink}" d="M13.5 1.5v9l6-4.5z"/>'
+             '<text x="16" y="21.5" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="9" fill="{ink}">10</text>',
     "next": '<path fill="{ink}" d="M23 6h3v20h-3z"/><path fill="{ink}" d="M5 6v20l16-10z"/>',
     "shuffle": '<path fill="none" stroke="{ink}" stroke-width="2.4" d="M3 9h5c6 0 10 14 16 14h3M3 23h5c2.6 0 4.6-2.6 6.4-5.6M17.6 13.6C19.4 10.6 21.4 9 24 9h3"/>'
                '<path fill="{ink}" d="M25 4l5 5-5 5zM25 18l5 5-5 5z"/>',

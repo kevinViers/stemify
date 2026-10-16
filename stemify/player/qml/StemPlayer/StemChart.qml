@@ -4,8 +4,8 @@ import QtQuick
 // for 0 dB. Below each category: M(ute) and S(olo).
 Rectangle {
     id: ch
-    color: "#FFFFFF"
-    border.color: "#D9D9D9"
+    color: X.paper
+    border.color: X.borderSoft
     readonly property var stems: player.stems
     readonly property int n: stems.length
     readonly property real unity: 0.8
@@ -34,7 +34,7 @@ Rectangle {
                 required property var modelData
                 y: plot.height * (1 - modelData)
                 width: plot.width
-                Rectangle { width: parent.width; height: 1; color: modelData === 0.8 ? "#A6A6A6" : X.chartLine }
+                Rectangle { width: parent.width; height: 1; color: modelData === 0.8 ? X.borderStrong : X.chartLine }
                 T {
                     x: -32
                     width: 28
@@ -68,7 +68,7 @@ Rectangle {
                     y: plot.height - height
                     color: cat.modelData.color
                     opacity: cat.modelData.audible ? 1 : 0.22
-                    border.color: dm.containsMouse || dm.pressed ? "#404040" : "transparent"
+                    border.color: dm.containsMouse || dm.pressed ? X.cellText : "transparent"
                     Behavior on height { enabled: !dm.pressed; NumberAnimation { duration: X.easeMs; easing.type: Easing.OutCubic } }
                 }
                 T {  // data label
@@ -114,7 +114,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { y: plot.height; width: plot.width; height: 1; color: "#BFBFBF" }
+        Rectangle { y: plot.height; width: plot.width; height: 1; color: X.borderStrong }
     }
 
     component Toggle: Rectangle {
@@ -127,8 +127,8 @@ Rectangle {
         signal clicked()
         width: 18
         height: 18
-        color: on ? onFill : tgm.containsMouse ? "#F2F2F2" : "#FFFFFF"
-        border.color: on ? onText : "#BFBFBF"
+        color: on ? onFill : tgm.containsMouse ? X.hoverSoft : X.paper
+        border.color: on ? onText : X.borderStrong
         T { anchors.centerIn: parent; text: tg.label; font.pixelSize: 11; font.bold: tg.on; color: tg.on ? tg.onText : X.inkSoft }
         MouseArea { id: tgm; anchors.fill: parent; hoverEnabled: true; onClicked: tg.clicked() }
         Tip { target: tgm; text: tg.tip }

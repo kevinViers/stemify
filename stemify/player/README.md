@@ -1,7 +1,8 @@
 # Stemify Player
 
 The desktop counterpart to the phone app: your Plex library and its stems, with per-stem
-faders, mute/solo, mix presets and a master volume. It is dressed as Microsoft Excel 2016.
+faders, mute/solo, mix presets and a master volume. It is dressed as Microsoft Excel 2016, in
+the Black Office theme (File → Options → Office Theme switches to Colorful).
 
 ```sh
 stemify-player            # or "Stemify Player" in the app grid (scripts/install-desktop.sh)
@@ -28,12 +29,13 @@ separated song is already playable.
 | Insert → Playlists | New Plex playlist from the selection, or add the selection to one |
 | AutoSum | AutoShuffle: shuffle the whole sheet |
 | Quick Access Toolbar | Play/Pause, Undo = previous song, Redo = next song |
+| Home → Playback | Play, previous / next, Back 10s / Ahead 10s, stop, shuffle, repeat |
 | Format Mix task pane | Now playing, a sparkline of the song to seek on, and the stems as a column chart: drag a column to set its level, double-click for 0 dB, M / S below |
 | Green triangle in a cell | The song that's playing |
 | `#GETTING_DATA` | A playlist loading from Plex |
 | File → Info / Account / Options | Library and server status, Plex sign-in, server addresses and folders |
 
-Keys: Space play/pause, Ctrl+←/→ previous/next, V vocals on/off, arrows/Shift+arrows select,
+Keys: Space play/pause, Ctrl+←/→ previous/next, Ctrl+Shift+←/→ 10 seconds back/ahead, V vocals on/off, arrows/Shift+arrows select,
 Ctrl+C copies cells as text, Ctrl+Q quits. The media keys, the desktop's media controls and
 KDE Connect on the phone work through MPRIS.
 

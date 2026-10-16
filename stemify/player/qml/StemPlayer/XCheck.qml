@@ -15,8 +15,8 @@ Item {
         height: 13
         y: (parent.height - height) / 2
         x: 2
-        color: "#FFFFFF"
-        border.color: ma.containsMouse ? X.green : "#7A7A7A"
+        color: X.paper
+        border.color: ma.containsMouse ? X.accent : X.borderStrong
         Ico { visible: c.checked; anchors.centerIn: parent; name: "check"; size: 12 }
     }
     T { id: lbl; x: 20; height: parent.height; text: c.text }

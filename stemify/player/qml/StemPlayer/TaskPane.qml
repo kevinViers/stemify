@@ -5,7 +5,7 @@ import QtQuick.Controls.Basic
 Rectangle {
     id: pane
     property var win: Window.window
-    color: "#FFFFFF"
+    color: X.paper
     Rectangle { width: 1; height: parent.height; color: X.ribbonLine }
 
     Item {
@@ -49,8 +49,8 @@ Rectangle {
                 Rectangle {
                     width: 128
                     height: 128
-                    color: "#F2F2F2"
-                    border.color: "#D9D9D9"
+                    color: X.paperAlt
+                    border.color: X.borderSoft
                     Image {
                         id: art
                         anchors.fill: parent
@@ -74,7 +74,7 @@ Rectangle {
                         font.family: uiFont
                         font.pixelSize: 16
                         font.bold: true
-                        color: "#222222"
+                        color: X.title
                         wrapMode: Text.WordWrap
                         maximumLineCount: 3
                         elide: Text.ElideRight
@@ -104,13 +104,15 @@ Rectangle {
                 readonly property var bars: player.wave.length ? player.wave : []
                 readonly property int n: bars.length ? bars.length : 80
                 property real hoverFrac: -1
-                Rectangle { anchors.fill: parent; color: "#FFFFFF"; border.color: "#D9D9D9" }
+                Rectangle { anchors.fill: parent; color: X.paper; border.color: X.borderSoft }
                 Canvas {
                     id: sparkCanvas
                     anchors.fill: parent
                     anchors.margins: 3
                     property real frac: spark.frac
                     property var bars: spark.bars
+                    property bool dk: X.dark
+                    onDkChanged: requestPaint()
                     onFracChanged: requestPaint()
                     onBarsChanged: requestPaint()
                     onWidthChanged: requestPaint()
@@ -121,7 +123,7 @@ Rectangle {
                         for (var i = 0; i < n; i++) {
                             var v = bars.length ? bars[i] : 0.12
                             var bh = Math.max(2, v * h)
-                            c.fillStyle = (i + 0.5) / n <= frac ? "#217346" : "#A9D08E"
+                            c.fillStyle = (i + 0.5) / n <= frac ? X.accent : X.sparkRest
                             c.fillRect(i * w + w * 0.15, h - bh, Math.max(1, w * 0.7), bh)
                         }
                     }
@@ -140,8 +142,8 @@ Rectangle {
                     y: -22
                     width: hv.implicitWidth + 10
                     height: 18
-                    color: "#FFFFFF"
-                    border.color: "#BEBEBE"
+                    color: X.raised
+                    border.color: X.borderStrong
                     T { id: hv; anchors.centerIn: parent; font.pixelSize: X.fsSmall; text: X.time(spark.hoverFrac * spark.dur) }
                 }
                 MouseArea {
@@ -171,6 +173,7 @@ Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: 6
                 PaneButton { icon: "shuffle"; checked: player.shuffleOn; tip: "Shuffle"; onClicked: player.toggleShuffle() }
+                PaneButton { icon: "back10"; tip: "Back 10 seconds (Ctrl+Shift+Left)"; onClicked: player.skipBy(-10) }
                 PaneButton { icon: "previous"; tip: "Previous"; onClicked: player.previous() }
                 PaneButton {
                     icon: player.status === "playing" ? "pause" : "play"
@@ -179,6 +182,7 @@ Rectangle {
                     onClicked: player.toggle()
                 }
                 PaneButton { icon: "next"; tip: "Next"; onClicked: player.next() }
+                PaneButton { icon: "fwd10"; tip: "Ahead 10 seconds (Ctrl+Shift+Right)"; onClicked: player.skipBy(10) }
                 PaneButton {
                     icon: player.repeatMode === "one" ? "repeat_one" : "repeat"
                     checked: player.repeatMode !== "off"
@@ -197,7 +201,7 @@ Rectangle {
                         required property int index
                         width: parent.width
                         height: 5
-                        color: "#EDEDED"
+                        color: X.paperAlt
                         Rectangle {
                             readonly property real lv: index === 0 ? pane.win.levelL : pane.win.levelR
                             readonly property real db: 20 * Math.log(Math.max(lv, 1e-5)) / Math.LN10
@@ -222,9 +226,10 @@ Rectangle {
                 width: parent.width
                 height: noteTxt.implicitHeight + 16
                 color: X.note
-                border.color: "#B2B2B2"
+                border.color: X.borderStrong
                 Text {
                     id: noteTxt
+                    color: X.ink
                     x: 8
                     y: 8
                     width: parent.width - 16
@@ -249,7 +254,8 @@ Rectangle {
                 Rectangle {
                     width: 150
                     height: 22
-                    border.color: pm.containsMouse ? X.green : "#ABABAB"
+                    color: X.paper
+                    border.color: pm.containsMouse ? X.accent : X.borderStrong
                     T { x: 6; height: parent.height; width: parent.width - 24; text: player.presetLabel }
                     Ico { anchors.right: parent.right; anchors.rightMargin: 5; anchors.verticalCenter: parent.verticalCenter; name: "dropdown"; size: 10 }
                     MouseArea { id: pm; anchors.fill: parent; hoverEnabled: true; onClicked: presetMenu.popup() }

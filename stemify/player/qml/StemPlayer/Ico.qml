@@ -7,7 +7,7 @@ Image {
     property int size: 16
     width: size
     height: size
-    source: "image://icon/" + name + (ink ? "/" + ink.replace("#", "") : "")
+    source: "image://icon/" + name + (ink ? "/" + ink.replace("#", "") : X.iconInk ? "/" + X.iconInk : "")
     sourceSize.width: size * Screen.devicePixelRatio
     sourceSize.height: size * Screen.devicePixelRatio
     smooth: true
