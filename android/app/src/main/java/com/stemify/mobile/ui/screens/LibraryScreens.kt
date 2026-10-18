@@ -1,5 +1,6 @@
 package com.stemify.mobile.ui.screens
 
+import java.io.IOException
 import androidx.compose.foundation.background
 import com.stemify.mobile.ui.components.ProgressRing
 import androidx.compose.ui.draw.clip
@@ -351,7 +352,16 @@ fun AlbumScreen(album: Album) {
     val c = Ios.colors
     val menu = rememberMediaMenu()
     val overlays = LocalOverlays.current
-    val tracks = rememberLoader("tracks") { g.plex.albumTracks(album.ratingKey) }
+    // Without the server (and nothing in the HTTP cache), list what's downloaded from this album.
+    val tracks = rememberLoader("tracks") {
+        try {
+            g.plex.albumTracks(album.ratingKey)
+        } catch (e: IOException) {
+            g.downloads.records.value.values.filter { it.done && it.track.albumKey == album.ratingKey }.map { it.track }
+                .sortedWith(compareBy({ it.disc ?: 0 }, { it.index ?: 0 }, { it.title.lowercase() }))
+                .ifEmpty { throw e }
+        }
+    }
     val detail = rememberLoader("detail") { g.plex.album(album.ratingKey) ?: album }
     val a = detail.value ?: album
     val records by g.downloads.records.collectAsState()
@@ -413,9 +423,19 @@ fun ArtistScreen(artist: Artist) {
     val menu = rememberMediaMenu()
     val scope = rememberCoroutineScope()
     val overlays = LocalOverlays.current
-    val albums = rememberLoader("albums") { g.plex.artistAlbums(artist.ratingKey).sortedByDescending { it.year ?: 0 } }
+    fun downloaded() = g.downloads.records.value.values.filter { it.done && it.track.artistKey == artist.ratingKey }.map { it.track }
+    val albums = rememberLoader("albums") {
+        try {
+            g.plex.artistAlbums(artist.ratingKey)
+        } catch (e: IOException) {
+            downloaded().filter { it.albumKey != null }.groupBy { it.albumKey!! }
+                .map { (key, ts) -> ts.first().let { t -> Album(key, t.album.ifEmpty { "Unknown Album" }, t.artist, t.artistKey, t.year, t.thumb) } }
+                .ifEmpty { throw e }
+        }.sortedByDescending { it.year ?: 0 }
+    }
     fun playAll(shuffle: Boolean) = scope.launch {
         runCatching { g.plex.artistTracks(artist.ratingKey) }
+            .recoverCatching { e -> downloaded().ifEmpty { throw e } }
             .onSuccess { g.playback.playTracks(it, 0, shuffle) }
             .onFailure { overlays.hud("Couldn't load songs", Sym.warning) }
     }

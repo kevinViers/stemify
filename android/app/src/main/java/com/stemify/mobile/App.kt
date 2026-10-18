@@ -24,6 +24,7 @@ import com.stemify.mobile.stems.StemServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.Cache
 import okhttp3.CacheControl
 import okhttp3.Interceptor
@@ -83,20 +84,24 @@ class Graph(app: App) {
 
     val imageHttp: OkHttpClient = mediaHttp.newBuilder().readTimeout(20, TimeUnit.SECONDS).build()
 
-    val plex = PlexClient(apiHttp, settings)
+    /** Is Plex/stemserve answering? Asked by the car UI before every browse, and once at launch. */
+    val reach = HomeReach(mediaHttp, settings, net, scope).also { r -> scope.launch { r.reachable() } }
 
-    /** Is Plex/stemserve answering? Asked by the car UI before every browse. */
-    val reach = HomeReach(mediaHttp, settings, net, scope)
+    /**
+     * Away from home, library GETs read the disk cache without waiting on LAN addresses that
+     * only time out; a cache miss still tries the network, in case home came back.
+     */
+    private val awayHttp = apiHttp.newBuilder().addInterceptor { chain ->
+        val req = chain.request()
+        if (reach.lastKnown || req.method != "GET") return@addInterceptor chain.proceed(req)
+        val cached = chain.proceed(req.newBuilder().cacheControl(CacheControl.FORCE_CACHE).build())
+        if (cached.code != 504) cached else { cached.close(); chain.proceed(req) }
+    }.build()
 
-    /** The car's Plex: identical, except that away from home it reads the disk cache without trying the network. */
-    val carPlex = PlexClient(
-        apiHttp.newBuilder().addInterceptor { chain ->
-            val req = chain.request()
-            if (reach.lastKnown || req.method != "GET") chain.proceed(req)
-            else chain.proceed(req.newBuilder().cacheControl(CacheControl.FORCE_CACHE).build())
-        }.build(),
-        settings,
-    )
+    val plex = PlexClient(awayHttp, settings)
+
+    /** The car's Plex; the same client now that the phone also reads the cache away from home. */
+    val carPlex = plex
     val stems = StemServer(apiHttp, settings, app.filesDir, scope)
     val cache = MediaCache(File(app.noBackupFilesDir, "media"), mediaHttp) {
         settings.cacheLimitGb.value.toLong() * 1024 * 1024 * 1024

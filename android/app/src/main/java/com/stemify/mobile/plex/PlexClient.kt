@@ -49,10 +49,10 @@ class PlexClient(private val http: OkHttpClient, private val settings: Settings)
 
     private suspend fun get(path: String, vararg params: Pair<String, Any?>, start: Int? = null, size: Int? = null): MediaContainer {
         if (!signedIn) throw NotSignedInException()
-        val req = Request.Builder().url(url(path, *params)).plexHeaders().apply {
-            if (start != null) header("X-Plex-Container-Start", start.toString())
-            if (size != null) header("X-Plex-Container-Size", size.toString())
-        }.build()
+        // Paging goes in the query, not headers, so each page is its own entry in the HTTP cache:
+        // offline, a shared entry answered every page with the same one and all() never finished.
+        val paging = listOfNotNull(start?.let { "X-Plex-Container-Start" to it }, size?.let { "X-Plex-Container-Size" to it })
+        val req = Request.Builder().url(url(path, *params, *paging.toTypedArray())).plexHeaders().build()
         val body = http.newCall(req).awaitBody()
         if (body.isBlank()) return MediaContainer()
         return AppJson.decodeFromString(PlexResponse.serializer(), body).container
