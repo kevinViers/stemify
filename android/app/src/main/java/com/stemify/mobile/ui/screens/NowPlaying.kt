@@ -99,7 +99,7 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 
-enum class NpPanel { Art, Mixer, Queue }
+enum class NpPanel { Art, Lyrics, Mixer, Queue }
 
 /**
  * A solid colour from the album art, pushed dark (or light for the White theme) so text
@@ -184,6 +184,10 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
             AnimatedContent(panel, Modifier.weight(1f), transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "panel") { p ->
                 when (p) {
                     NpPanel.Art -> ArtPanel(track.thumb, playing, dragModifier)
+                    NpPanel.Lyrics -> Column {
+                        MiniHeader(track.thumb, track.title, track.artist) { menu.show(track) }
+                        LyricsPanel(track, position, names, mix, source, playing)
+                    }
                     NpPanel.Mixer -> Column {
                         MiniHeader(track.thumb, track.title, track.artist) { menu.show(track) }
                         MixerPanel(names, mix, source, master)
@@ -229,8 +233,10 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                     IconButton(Sym.forward, pm::next, tint = c.label, size = 38.dp, box = 64.dp)
                     IconButton(Sym.goforward10, { pm.skipBy(10_000) }, tint = c.label, size = 30.dp, box = 52.dp)
                 }
-                // Bottom row: stems, output route, queue.
+                // Bottom row: lyrics and stems, output route, queue.
                 Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PanelToggle(Sym.quote, panel == NpPanel.Lyrics) { panel = if (panel == NpPanel.Lyrics) NpPanel.Art else NpPanel.Lyrics }
+                    Spacer(Modifier.width(4.dp))
                     PanelToggle(Sym.sliders, panel == NpPanel.Mixer) { panel = if (panel == NpPanel.Mixer) NpPanel.Art else NpPanel.Mixer }
                     Row(
                         Modifier.weight(1f).pressFade { onClose(); app.showInSettings(Route.Eq) },
@@ -246,6 +252,7 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                         }
                         Txt(device.label + eqLabel, Type.footnote, color = c.label2, weight = FontWeight.Medium)
                     }
+                    Spacer(Modifier.width(44.dp)) // balances the two buttons on the left, so the route stays centred
                     PanelToggle(Sym.queue, panel == NpPanel.Queue) { panel = if (panel == NpPanel.Queue) NpPanel.Art else NpPanel.Queue }
                 }
             }

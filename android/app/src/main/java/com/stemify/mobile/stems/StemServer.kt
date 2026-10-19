@@ -124,6 +124,8 @@ class StemServer(
     fun find(track: Track): StemEntry? {
         val idx = _index.value
         track.stemKey?.let { k -> return idx.entries.firstOrNull { it.key == k } }
+        // Not loaded from disk yet: nothing to match, and nothing learned to save (saving would wipe the roots).
+        if (idx.size == 0) return null
         val hit = idx.find(track.partFile, track.durationMs)
         val learned = idx.roots.joinToString("\n")
         if (learned != settings.stemRoots.value) settings.stemRoots.value = learned

@@ -12,6 +12,8 @@ import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
+import com.stemify.mobile.cache.Downloads
 import com.stemify.mobile.cache.MediaCache
 import com.stemify.mobile.core.AppJson
 import com.stemify.mobile.core.Settings
@@ -73,6 +75,8 @@ enum class SourceKind { None, Stems, Original }
 @Serializable
 data class QueueItem(val uid: Long, val track: Track)
 
+data class StemKeyParts(val entryKey: String, val file: String, val size: Long, val quality: StemQuality)
+
 /** Waveform data for the seek bar: per-stem envelopes from stemserve, or Plex loudness in dB. */
 class Waveform(val stems: Map<String, FloatArray>?, val loudnessDb: FloatArray?)
 
@@ -96,8 +100,11 @@ class PlaybackManager(
     private val plex: PlexClient,
     private val stems: StemServer,
     private val cache: MediaCache,
+    private val downloads: Downloads,
     private val eq: EqController,
     private val scope: CoroutineScope,
+    /** Whether the home server answered last time anyone asked; away, songs that aren't downloaded are skipped. */
+    private val home: () -> Boolean,
 ) : StemEngine.Listener {
 
     val engine = StemEngine(this)
@@ -419,6 +426,7 @@ class PlaybackManager(
 
     /** True when [track] would play without the home network: its stems (or, lacking stems, its file) are fully cached. */
     fun playableOffline(track: Track): Boolean {
+        if (downloads.offlineCopy(track) != null) return true
         val entry = stems.find(track)
         if (entry != null) {
             return StemQuality.entries.any { q -> entry.stems.all { cache.isComplete(stemKey(entry, it.file, it.size, q)) } }
@@ -476,8 +484,15 @@ class PlaybackManager(
             } catch (e: Exception) {
                 session?.release()
                 _buffering.value = false
-                _messages.tryEmit("Couldn't play “${item.track.title}”: ${e.message ?: e.javaClass.simpleName}")
-                if (++failures < 3 && i + 1 < _queue.value.size) load(i + 1, 0, play) else {
+                Log.w(TAG, "couldn't play ${item.track.ratingKey} “${item.track.title}”", e)
+                // Away from home, go on to the next song that's on the phone rather than through
+                // (and stopping after) three that can't load.
+                val away = !home()
+                val q = _queue.value
+                if (away && !playableOffline(item.track)) _messages.tryEmit("“${item.track.title}” isn't downloaded")
+                else _messages.tryEmit("Couldn't play “${item.track.title}”: ${e.message ?: e.javaClass.simpleName}")
+                val next = if (away) (i + 1 until q.size).firstOrNull { playableOffline(q[it].track) } else (i + 1).takeIf { it < q.size }
+                if (next != null && (away || ++failures < 3)) load(next, 0, play) else {
                     failures = 0
                     _playWhenReady.value = false
                     holdLocks(false)
@@ -498,8 +513,12 @@ class PlaybackManager(
 
     /** Opens every stem (or the original file) and waits for the decoders to know their format. */
     private fun open(track: Track, startMs: Long): Pair<TrackSession, StemEntry?> {
-        val entry = stems.find(track)
-        val sources: List<Triple<String, String, String>> = if (entry != null) {
+        // A download plays from exactly the files it saved, server or no server.
+        val held = downloads.offlineCopy(track)
+        val entry = if (held != null) held.entry else stems.find(track)
+        val sources: List<Triple<String, String, String>> = if (held != null) {
+            held.sources
+        } else if (entry != null) {
             val q = qualityFor(entry)
             stems.prepare(entry, q)
             Stems.sort(entry.stems.map { it.name }).map { name ->
@@ -572,13 +591,12 @@ class PlaybackManager(
     private fun upcomingIndex(): Int? {
         val q = _queue.value
         val i = _index.value
-        return when {
-            q.isEmpty() || i < 0 -> null
-            _repeat.value == RepeatMode.One -> i
-            i + 1 < q.size -> i + 1
-            _repeat.value == RepeatMode.All -> 0
-            else -> null
-        }
+        if (q.isEmpty() || i < 0) return null
+        if (_repeat.value == RepeatMode.One) return i
+        val after = (i + 1 until q.size) + if (_repeat.value == RepeatMode.All) (0..i) else IntRange.EMPTY
+        // Away from home, the next song that's on the phone.
+        if (!home()) return after.firstOrNull { playableOffline(q[it].track) }
+        return after.firstOrNull()
     }
 
     private fun loadWaveform(track: Track, entry: StemEntry?) {
@@ -760,8 +778,19 @@ class PlaybackManager(
     companion object {
         const val RING_FRAMES = StemEngine.RING_SECONDS * 48_000
         const val WAVE_BUCKETS = 256
+        private const val TAG = "StemPlayback"
 
         fun stemKey(entry: StemEntry, file: String, size: Long, q: StemQuality) = "stem|${entry.key}|$file|$size|${q.name}"
+
+        /** The parts of a [stemKey]; null for anything else. */
+        fun parseStemKey(key: String): StemKeyParts? {
+            if (!key.startsWith("stem|")) return null
+            val p = key.split('|')
+            if (p.size < 5) return null
+            val q = StemQuality.entries.firstOrNull { it.name == p.last() } ?: return null
+            val size = p[p.size - 2].toLongOrNull() ?: return null
+            return StemKeyParts(p.subList(1, p.size - 3).joinToString("|"), p[p.size - 3], size, q)
+        }
         fun plexKey(track: Track) = "plex|${track.partId}|${track.partSize}"
     }
 }

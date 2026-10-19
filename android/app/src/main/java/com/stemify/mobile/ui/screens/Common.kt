@@ -265,7 +265,7 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
         val dl = g.downloads.records.value[track.ratingKey]
         val actions = buildList {
             addAll(queueActions { listOf(track) })
-            if (dl == null) add(SheetAction("Download") { g.downloads.download(listOf(track)); overlays.hud("Downloading", Sym.download) })
+            if (dl == null || !dl.direct) add(SheetAction("Download") { g.downloads.download(listOf(track)); overlays.hud("Downloading", Sym.download) })
             else add(SheetAction("Remove Download", destructive = true) { g.downloads.remove(listOf(track)) })
             add(SheetAction("Add to Playlist…") { addToPlaylist(listOf(track)) })
             if (track.partFile != null && g.stems.index.value.size > 0 && g.stems.find(track) == null) add(stemNow { listOf(track) })
@@ -281,7 +281,7 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
     }
 
     fun album(a: Album, extra: List<SheetAction> = emptyList(), allowGoTo: Boolean = true) {
-        val have = g.downloads.records.value.values.filter { it.done && it.track.albumKey == a.ratingKey }.map { it.track }
+        val have = g.downloads.records.value.values.filter { it.done && it.direct && it.track.albumKey == a.ratingKey }.map { it.track }
         val total = g.coverage.albums.value[a.ratingKey]?.total ?: a.trackCount ?: Int.MAX_VALUE
         collection("${a.title} — ${a.artist}", have, have.size >= total, { g.plex.albumTracks(a.ratingKey) }, null, stemmed = stemmed(g.coverage.albums.value[a.ratingKey]), extra = buildList {
             if (allowGoTo && a.artistKey != null) add(SheetAction("Go to Artist") { app.showInLibrary(Route.ArtistPage(Artist(a.artistKey, a.artist, a.artist))) })
@@ -290,14 +290,25 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
     }
 
     fun artist(a: Artist) {
-        val have = g.downloads.records.value.values.filter { it.done && it.track.artistKey == a.ratingKey }.map { it.track }
+        val have = g.downloads.records.value.values.filter { it.done && it.direct && it.track.artistKey == a.ratingKey }.map { it.track }
         val total = g.coverage.artists.value[a.ratingKey]?.total ?: Int.MAX_VALUE
         collection(a.title, have, have.size >= total, { g.plex.artistTracks(a.ratingKey) }, null, emptyList(), confirmDownload = true,
             stemmed = stemmed(g.coverage.artists.value[a.ratingKey]))
     }
 
     fun playlist(p: Playlist, extra: List<SheetAction> = emptyList()) {
-        collection(p.title, emptyList(), false, { g.plex.playlistTracks(p.ratingKey) }, p.ratingKey, extra, confirmDownload = p.trackCount > 50)
+        val held = g.downloads.playlists.value[p.ratingKey]
+        val load: suspend () -> List<Track> = {
+            try {
+                g.plex.playlistTracks(p.ratingKey).also { g.downloads.syncPlaylist(p, it) }
+            } catch (e: java.io.IOException) {
+                g.downloads.playlistTracks(p.ratingKey).ifEmpty { throw e }
+            }
+        }
+        collection(
+            p.title, emptyList(), held != null, load, p.ratingKey, extra, confirmDownload = p.trackCount > 50,
+            download = { g.downloads.downloadPlaylist(p, it) }, remove = { g.downloads.removePlaylist(p.ratingKey) }, held = held != null,
+        )
     }
 
     /** For songs already in hand (downloads with no Plex album behind them). */
@@ -313,6 +324,9 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
     private fun collection(
         title: String, downloaded: List<Track>, allDownloaded: Boolean, load: suspend () -> List<Track>,
         playlistKey: String?, extra: List<SheetAction>, confirmDownload: Boolean = false, stemmed: Boolean = false,
+        download: (List<Track>) -> Unit = { g.downloads.download(it) },
+        remove: () -> Unit = { g.downloads.remove(downloaded) },
+        held: Boolean = downloaded.isNotEmpty(),
     ) {
         overlays.actions(title, buildList {
             addAll(queueActions(load))
@@ -320,15 +334,15 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
                 withTracks(load) { tracks ->
                     if (confirmDownload && tracks.size > 20) {
                         overlays.confirm("Download ${songs(tracks.size)}?", "“$title” will play without your server, stems and all.", "Download", destructive = false) {
-                            g.downloads.download(tracks); overlays.hud("Downloading", Sym.download)
+                            download(tracks); overlays.hud("Downloading", Sym.download)
                         }
                     } else {
-                        g.downloads.download(tracks); overlays.hud("Downloading", Sym.download)
+                        download(tracks); overlays.hud("Downloading", Sym.download)
                     }
                 }
             })
-            if (downloaded.isNotEmpty()) add(SheetAction("Remove Download", destructive = true) {
-                overlays.confirm("Remove Download?", "“$title” will no longer be available offline.", "Remove") { g.downloads.remove(downloaded) }
+            if (held) add(SheetAction("Remove Download", destructive = true) {
+                overlays.confirm("Remove Download?", "“$title” will no longer be available offline.", "Remove") { remove() }
             })
             add(SheetAction("Add to Playlist…") { withTracks(load) { addToPlaylist(it, skip = playlistKey) } })
             if (!stemmed) add(stemNow(load))

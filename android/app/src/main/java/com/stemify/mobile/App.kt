@@ -17,6 +17,7 @@ import com.stemify.mobile.cache.MediaCache
 import com.stemify.mobile.core.Connectivity
 import com.stemify.mobile.core.Settings
 import com.stemify.mobile.eq.EqController
+import com.stemify.mobile.lyrics.LyricsRepo
 import com.stemify.mobile.playback.PlaybackManager
 import com.stemify.mobile.plex.PlexClient
 import com.stemify.mobile.stems.StemCoverage
@@ -107,8 +108,13 @@ class Graph(app: App) {
         settings.cacheLimitGb.value.toLong() * 1024 * 1024 * 1024
     }
     val eq = EqController(app)
-    val playback = PlaybackManager(app, settings, plex, stems, cache, eq, scope)
-    val downloads = Downloads(app, settings, plex, stems, cache, net, scope)
+    /** Lyrics from Plex, else LRCLIB on the internet (reachable away from home too). */
+    val lyrics = LyricsRepo(
+        mediaHttp.newBuilder().readTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build(),
+        plex, settings, app.filesDir, scope,
+    )
+    val downloads = Downloads(app, settings, plex, stems, cache, net, lyrics, scope)
+    val playback = PlaybackManager(app, settings, plex, stems, cache, downloads, eq, scope) { reach.lastKnown }
     val coverage = StemCoverage(plex, stems, settings, app.filesDir, scope)
 
     private companion object {

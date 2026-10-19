@@ -91,6 +91,8 @@ class Settings(context: Context) {
     /** Downloads page order: 0 download order, 1 artist, 2 release date. */
     val downloadSort = int("downloadSort", 0)
     val keepStemMix = bool("keepStemMix", true)
+    /** Look up lyrics on LRCLIB (lrclib.net) when Plex has none, sending it the song's title and artist. */
+    val onlineLyrics = bool("onlineLyrics", true)
     val masterVolume = float("masterVolume", 0.85f)
 
     val clientId: String = prefs.getString("clientId", null) ?: UUID.randomUUID().toString().also {

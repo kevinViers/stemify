@@ -79,6 +79,7 @@ fun SettingsScreen() {
     val status by g.stems.status.collectAsState()
     val quality by s.stemQuality.flow.collectAsState()
     val keepMix by s.keepStemMix.flow.collectAsState()
+    val onlineLyrics by s.onlineLyrics.flow.collectAsState()
     val wifi by s.downloadsWifiOnly.flow.collectAsState()
     val theme by s.theme.flow.collectAsState()
     val hz by s.highRefreshRate.flow.collectAsState()
@@ -102,6 +103,7 @@ fun SettingsScreen() {
             { Cell("Equalizer", icon = { SettingsIcon(Sym.sliders, Color(0xFF34C759)) }, value = if (!eqState.enabled) "Off" else eqProfile?.name ?: "On", chevron = true) { nav.push(Route.Eq) } },
             { Cell("Stem Quality", icon = { SettingsIcon(Sym.gauge, Color(0xFFFF2D55)) }, value = quality.label, chevron = true) { nav.push(Route.Quality) } },
             { Cell("Keep Stem Mix Between Songs", icon = { SettingsIcon(Sym.speakerWave, Color(0xFF5856D6)) }, trailing = { IosSwitch(keepMix, { s.keepStemMix.value = it }) }) },
+            { Cell("Search LRCLIB for Lyrics", icon = { SettingsIcon(Sym.quote, Color(0xFFFF9500)) }, trailing = { IosSwitch(onlineLyrics, { s.onlineLyrics.value = it }) }) },
         ))
         section("storage", header = "Storage", separatorInset = 60.dp, rows = listOf(
             { Cell("Cache & Downloads", icon = { SettingsIcon(Sym.externalDrive, Color(0xFF8E8E93)) }, value = gb(usage.cachedBytes), chevron = true) { nav.push(Route.Storage) } },

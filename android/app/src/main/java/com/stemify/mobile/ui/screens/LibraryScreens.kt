@@ -366,7 +366,7 @@ fun AlbumScreen(album: Album) {
     val a = detail.value ?: album
     val records by g.downloads.records.collectAsState()
     val list = tracks.value.orEmpty()
-    val allDownloaded = list.isNotEmpty() && list.all { records[it.ratingKey]?.done == true }
+    val allDownloaded = list.isNotEmpty() && list.all { records[it.ratingKey]?.let { r -> r.done && r.direct } == true }
 
     Page(a.title, largeTitle = false, trailing = {
         if (list.isNotEmpty()) {
@@ -475,6 +475,7 @@ fun DownloadsScreen() {
     val overlays = LocalOverlays.current
     val section by g.settings.musicSection.flow.collectAsState()
     val records by g.downloads.records.collectAsState()
+    val heldPlaylists by g.downloads.playlists.collectAsState()
     val progress by g.downloads.progress.collectAsState()
     val usage by g.cache.usage.collectAsState()
     val sort by g.settings.downloadSort.flow.collectAsState()
@@ -483,7 +484,8 @@ fun DownloadsScreen() {
     val info = albumInfo.value.orEmpty()
 
     val albums = remember(records, info, sort) {
-        val grouped = records.values.groupBy { r -> r.track.albumKey ?: "name:${r.track.artist}|${r.track.album}" }.map { (key, rs) ->
+        // Songs that only came with a playlist live under that playlist, not their album.
+        val grouped = records.values.filter { it.direct }.groupBy { r -> r.track.albumKey ?: "name:${r.track.artist}|${r.track.album}" }.map { (key, rs) ->
             val t = rs.first().track
             val known = info[key]
             val artists = rs.map { it.track.artist }.distinct()
@@ -499,35 +501,72 @@ fun DownloadsScreen() {
         }
     }
     val byKey = albums.associateBy { it.album.ratingKey }
-    val allDone = albums.flatMap { a -> a.tracks.filter { records[it.ratingKey]?.done == true } }
+    val playlists = remember(heldPlaylists, sort) {
+        val all = heldPlaylists.values.toList()
+        if (sort == 0) all.sortedByDescending { it.added } else all.sortedBy { it.playlist.title.lowercase() }
+    }
+    val allDone = (albums.flatMap { a -> a.tracks } + playlists.flatMap { p -> p.keys.mapNotNull { records[it]?.track } })
+        .distinctBy { it.ratingKey }.filter { records[it.ratingKey]?.done == true }
+    val empty = albums.isEmpty() && playlists.isEmpty()
 
     Page("Downloads", trailing = {
-        if (albums.isNotEmpty()) {
+        if (!empty) {
             TextButton("Sort", {
                 overlays.actions("Sort By", DOWNLOAD_SORTS.mapIndexed { i, label -> SheetAction(if (i == sort) "✓ $label" else label) { g.settings.downloadSort.value = i } })
             })
             IconButton(Sym.ellipsis, {
                 overlays.actions("Downloads", buildList {
-                    if (albums.any { it.failed > 0 }) add(SheetAction("Retry Failed") { g.downloads.retryFailed() })
+                    if (records.values.any { it.error != null }) add(SheetAction("Retry Failed") { g.downloads.retryFailed() })
                     add(SheetAction("Remove All Downloads", destructive = true) {
                         overlays.confirm("Remove All Downloads?", "Frees ${"%.1f".format(usage.pinnedBytes / 1e9)} GB. Songs stay in your library.", "Remove All") {
-                            g.downloads.remove(records.values.map { it.track })
+                            g.downloads.removeAll()
                         }
                     })
                 })
             })
         }
     }) {
-        if (albums.isEmpty()) {
+        if (empty) {
             item("empty") { EmptyState(Sym.download, "Nothing Downloaded", "Hold any album, artist, playlist or song and choose Download to play it, stems and all, without your server.") }
             return@Page
         }
         item("summary") {
             Column(Modifier.padding(bottom = 14.dp)) {
-                Txt("${albums.size} album${if (albums.size == 1) "" else "s"} · ${songs(records.size)} · ${"%.1f".format(usage.pinnedBytes / 1e9)} GB · by ${DOWNLOAD_SORTS[sort].lowercase()}",
+                val counts = buildList {
+                    if (playlists.isNotEmpty()) add("${playlists.size} playlist${if (playlists.size == 1) "" else "s"}")
+                    if (albums.isNotEmpty()) add("${albums.size} album${if (albums.size == 1) "" else "s"}")
+                }.joinToString(" · ")
+                Txt("$counts · ${songs(records.size)} · ${"%.1f".format(usage.pinnedBytes / 1e9)} GB · by ${DOWNLOAD_SORTS[sort].lowercase()}",
                     Type.subhead, Modifier.padding(start = MARGIN.dp, bottom = 12.dp), color = c.label2)
                 PlayShuffle(onPlay = { g.playback.playTracks(allDone, 0) }, onShuffle = { g.playback.playTracks(allDone, shuffle = true) })
             }
+        }
+        if (playlists.isNotEmpty()) {
+            if (albums.isNotEmpty()) item("playlists-title") { SectionTitle("Playlists") }
+            items(playlists.size, key = { "pl:" + playlists[it].playlist.ratingKey }) { i ->
+                val d = playlists[i]
+                val recs = d.keys.mapNotNull { records[it] }
+                val done = recs.count { it.done }
+                val failed = recs.count { it.error != null }
+                PlaylistRow(
+                    d.playlist.copy(trackCount = d.keys.size),
+                    subtitle = when {
+                        failed > 0 -> "${songs(d.keys.size)} · $failed failed"
+                        done < recs.size -> "$done of ${songs(recs.size)}"
+                        else -> null
+                    },
+                    badge = if (done < recs.size) ({
+                        if (failed > 0) Icon(Sym.warning, c.label2, size = 18.dp)
+                        else ProgressRing(((done + recs.sumOf { (progress[it.track.ratingKey] ?: 0f).toDouble() }) / recs.size).toFloat(), size = 20.dp, color = c.label2)
+                    }) else null,
+                    onLongClick = {
+                        menu.playlist(d.playlist, extra = buildList {
+                            if (failed > 0) add(SheetAction("Retry Failed Songs") { g.downloads.retryFailed() })
+                        })
+                    },
+                ) { nav.push(Route.PlaylistPage(d.playlist)) }
+            }
+            if (albums.isNotEmpty()) item("albums-title") { SectionTitle("Albums") }
         }
         albumGrid(
             "downloads", albums.map { it.album },

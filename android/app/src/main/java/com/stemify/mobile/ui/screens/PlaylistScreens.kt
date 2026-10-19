@@ -107,7 +107,7 @@ fun PlaylistsScreen() {
 }
 
 @Composable
-private fun PlaylistRow(p: Playlist, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun PlaylistRow(p: Playlist, onLongClick: (() -> Unit)? = null, subtitle: String? = null, badge: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val c = Ios.colors
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
@@ -120,7 +120,11 @@ private fun PlaylistRow(p: Playlist, onLongClick: (() -> Unit)? = null, onClick:
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Txt(p.title, Type.body)
-                Txt(songs(p.trackCount), Type.subhead, color = c.label2)
+                Txt(subtitle ?: songs(p.trackCount), Type.subhead, color = c.label2)
+            }
+            if (badge != null) {
+                badge()
+                Spacer(Modifier.width(8.dp))
             }
             if (p.smart) {
                 Tag("SMART")
@@ -150,7 +154,16 @@ fun PlaylistScreen(playlist: Playlist) {
     val menu = rememberMediaMenu()
     val overlays = LocalOverlays.current
     val scope = rememberCoroutineScope()
-    val tracks = rememberLoader("tracks") { g.plex.playlistTracks(playlist.ratingKey) }
+    // Downloaded playlists follow the server's copy, and stand in for it when the server's away.
+    val tracks = rememberLoader("tracks") {
+        try {
+            g.plex.playlistTracks(playlist.ratingKey).also { g.downloads.syncPlaylist(playlist, it) }
+        } catch (e: java.io.IOException) {
+            g.downloads.playlistTracks(playlist.ratingKey).ifEmpty { throw e }
+        }
+    }
+    val held by g.downloads.playlists.collectAsState()
+    val downloaded = playlist.ratingKey in held
     var title by rememberInEntry("title") { mutableStateOf(playlist.title) }
     val edit = rememberInEntry("edit") { EditState() }
     val list = tracks.value.orEmpty()
@@ -189,6 +202,10 @@ fun PlaylistScreen(playlist: Playlist) {
                 edit.items.clear(); edit.items.addAll(list); edit.removed.clear(); edit.editing = true
             })
         }
+        if (!edit.editing && list.isNotEmpty()) IconButton(if (downloaded) Sym.check else Sym.download, {
+            if (downloaded) overlays.confirm("Remove Download?", "“$title” will no longer be available offline.", "Remove") { g.downloads.removePlaylist(playlist.ratingKey) }
+            else { g.downloads.downloadPlaylist(playlist.copy(title = title), list); overlays.hud("Downloading", Sym.download) }
+        })
         if (!edit.editing) IconButton(Sym.ellipsis, {
             menu.playlist(playlist.copy(title = title, trackCount = list.size), extra = buildList {
                 if (!playlist.smart) add(SheetAction("Rename…") {

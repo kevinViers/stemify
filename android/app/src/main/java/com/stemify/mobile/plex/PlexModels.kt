@@ -19,6 +19,7 @@ data class MediaContainer(
     @SerialName("Directory") val directories: List<PlexDirectory> = emptyList(),
     @SerialName("Hub") val hubs: List<PlexHub> = emptyList(),
     @SerialName("Level") val levels: List<PlexLevel> = emptyList(),
+    @SerialName("Lyrics") val lyrics: List<PlexLyrics> = emptyList(),
 )
 
 @Serializable
@@ -75,8 +76,34 @@ data class PlexPart(
     @SerialName("Stream") val streams: List<PlexStream> = emptyList(),
 )
 
+/** streamType 2 is audio, 4 lyrics (key, codec "lrc" or "txt"). */
 @Serializable
-data class PlexStream(val id: Long = 0, val streamType: Int = 0)
+data class PlexStream(
+    val id: Long = 0,
+    val streamType: Int = 0,
+    val key: String? = null,
+    val codec: String? = null,
+    val format: String? = null,
+    val provider: String? = null,
+)
+
+/** A lyrics stream as JSON: lines with times in ms when synced, spans for parts of a line. */
+@Serializable
+data class PlexLyrics(
+    val provider: String? = null,
+    val by: String? = null,
+    @SerialName("Line") val lines: List<PlexLyricLine> = emptyList(),
+)
+
+@Serializable
+data class PlexLyricLine(
+    val startOffset: Long? = null,
+    val endOffset: Long? = null,
+    @SerialName("Span") val spans: List<PlexLyricSpan> = emptyList(),
+)
+
+@Serializable
+data class PlexLyricSpan(val text: String = "", val startOffset: Long? = null, val endOffset: Long? = null)
 
 @Serializable
 data class PlexTag(val tag: String = "")

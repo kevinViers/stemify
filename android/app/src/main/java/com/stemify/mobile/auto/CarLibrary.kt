@@ -76,7 +76,11 @@ class CarLibrary(private val g: Graph) {
     }
 
     private suspend fun playlists(away: Boolean): List<MediaItem> {
-        val all = plex.playlists()
+        val all = try {
+            plex.playlists()
+        } catch (e: java.io.IOException) {
+            g.downloads.playlists.value.values.map { it.playlist }.ifEmpty { throw e }
+        }
         val shown = if (!away) all else all.filter { p -> runCatching { tracksOf(CarIds.playlist(p.ratingKey)).isNotEmpty() }.getOrDefault(false) }
         return shown.map(::playlistItem)
     }
@@ -139,7 +143,11 @@ class CarLibrary(private val g: Graph) {
             else -> {
                 val (kind, key) = CarIds.split(container) ?: return emptyList()
                 when (kind) {
-                    "playlist" -> plex.playlistTracks(key)
+                    "playlist" -> try {
+                        plex.playlistTracks(key)
+                    } catch (e: java.io.IOException) {
+                        g.downloads.playlistTracks(key).ifEmpty { throw e }
+                    }
                     "album" -> plex.albumTracks(key)
                     "artist" -> if (away) downloadedTracks().filter { it.artistKey == key } else plex.artistTracks(key)
                     "search" -> searchTracks(key)

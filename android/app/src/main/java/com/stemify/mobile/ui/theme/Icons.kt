@@ -100,6 +100,11 @@ object Sym {
             s("M15 9.5l5 5M20 9.5l-5 5", 1.9f))
     }
     val download by lazy { icon("arrow.down.circle", s("${circle(12f, 12f, 9.25f)}M12 7.5v8.5M8.5 12.6L12 16l3.5-3.4", 1.8f)) }
+    val quote by lazy {
+        icon("quote.bubble",
+            s("M12 3.9c-4.97 0-9 3.27-9 7.3 0 2.28 1.29 4.32 3.31 5.66L5.7 20.4l4.36-2.27c.63.11 1.28.17 1.94.17 4.97 0 9-3.27 9-7.3S16.97 3.9 12 3.9z", 1.8f),
+            f("M8.3 9.1h2.6v2.5c0 1.45-.75 2.4-2.05 2.85l-.45-.9c.62-.3.95-.8.98-1.45H8.3zM13.1 9.1h2.6v2.5c0 1.45-.75 2.4-2.05 2.85l-.45-.9c.62-.3.95-.8.98-1.45H13.1z"))
+    }
     val queue by lazy {
         icon("list.bullet", s("M8.5 6h12M8.5 12h12M8.5 18h12", 1.9f), f(circle(4f, 6f, 1.5f)), f(circle(4f, 12f, 1.5f)), f(circle(4f, 18f, 1.5f)))
     }

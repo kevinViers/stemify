@@ -7,6 +7,8 @@ import com.stemify.mobile.core.HttpException
 import com.stemify.mobile.core.Settings
 import com.stemify.mobile.core.await
 import com.stemify.mobile.core.awaitBody
+import com.stemify.mobile.lyrics.Lyrics
+import com.stemify.mobile.lyrics.LyricsParse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
@@ -141,6 +143,25 @@ class PlexClient(private val http: OkHttpClient, private val settings: Settings)
             return null // not analysed yet
         }
         return if (levels.isEmpty()) null else FloatArray(levels.size) { levels[it].v }
+    }
+
+    /**
+     * Lyrics Plex has for the track: LyricFind's (with Plex Pass) or an .lrc/.txt file beside the
+     * music. Synced ones first. Null when it has none.
+     */
+    suspend fun lyrics(trackKey: String): Lyrics? {
+        val streams = track(trackKey)?.media?.flatMap { it.parts }?.flatMap { it.streams }
+            ?.filter { it.streamType == 4 && !it.key.isNullOrEmpty() }.orEmpty()
+            .sortedByDescending { it.codec == "lrc" || it.format == "lrc" }
+        var plain: Lyrics? = null
+        for (s in streams) {
+            val req = Request.Builder().url(url(s.key!!)).plexHeaders().build()
+            val body = http.newCall(req).awaitBody()
+            val l = LyricsParse.plexBody(body, "Plex") ?: continue
+            if (l.synced) return l
+            if (plain == null) plain = l
+        }
+        return plain
     }
 
     suspend fun search(query: String): SearchResults {
