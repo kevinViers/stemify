@@ -76,7 +76,15 @@ fun PlaylistsScreen() {
     val c = Ios.colors
     val menu = rememberMediaMenu()
     val overlays = LocalOverlays.current
-    val lists = rememberLoader("playlists") { g.plex.playlists() }
+    // Without the server (and nothing cached), at least the downloaded ones.
+    val lists = rememberLoader("playlists") {
+        try {
+            g.plex.playlists()
+        } catch (e: java.io.IOException) {
+            g.downloads.playlists.value.values.sortedBy { it.playlist.title.lowercase() }
+                .map { it.playlist.copy(trackCount = it.keys.size) }.ifEmpty { throw e }
+        }
+    }
     val queue by g.playback.queue.collectAsState()
     LaunchedEffect(Unit) { lists.refresh() }
     Page("Playlists", trailing = {
@@ -156,10 +164,12 @@ fun PlaylistScreen(playlist: Playlist) {
     val scope = rememberCoroutineScope()
     // Downloaded playlists follow the server's copy, and stand in for it when the server's away.
     val tracks = rememberLoader("tracks") {
+        val local = g.downloads.playlistTracks(playlist.ratingKey)
+        if (local.isNotEmpty() && !g.reach.reachable()) return@rememberLoader local
         try {
             g.plex.playlistTracks(playlist.ratingKey).also { g.downloads.syncPlaylist(playlist, it) }
         } catch (e: java.io.IOException) {
-            g.downloads.playlistTracks(playlist.ratingKey).ifEmpty { throw e }
+            local.ifEmpty { throw e }
         }
     }
     val held by g.downloads.playlists.collectAsState()

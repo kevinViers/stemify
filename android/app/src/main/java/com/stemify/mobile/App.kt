@@ -7,9 +7,11 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
+import coil3.intercept.Interceptor
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
+import coil3.request.ImageResult
 import coil3.request.crossfade
 import com.stemify.mobile.auto.HomeReach
 import com.stemify.mobile.cache.Downloads
@@ -28,7 +30,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.Cache
 import okhttp3.CacheControl
-import okhttp3.Interceptor
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.io.File
 import java.io.IOException
@@ -46,13 +48,38 @@ class App : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { graph.imageHttp })) }
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { graph.imageHttp }))
+                add(OfflineArt)
+            }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.2).build() }
             .diskCache { DiskCache.Builder().directory(File(cacheDir, "art")).maxSizeBytes(512L * 1024 * 1024).build() }
             .crossfade(false)
             // Debug builds draw the UI to a software canvas for screenshots, which can't take hardware bitmaps.
             .allowHardware(applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0)
             .build()
+
+    /**
+     * Away from home, art the disk cache holds at another size instead of waiting on the server
+     * for this exact one. Downloads only save one size; lists and Now Playing each ask for others.
+     */
+    private object OfflineArt : Interceptor {
+        override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
+            val url = chain.request.data as? String
+            if (url == null || graph.reach.lastKnown || "/photo/:/transcode" !in url) return chain.proceed()
+            val disk = SingletonImageLoader.get(instance).diskCache ?: return chain.proceed()
+            fun cached(u: String) = disk.openSnapshot(u)?.use { true } == true
+            if (cached(url)) return chain.proceed()
+            val parsed = url.toHttpUrlOrNull() ?: return chain.proceed()
+            val thumb = parsed.queryParameter("url") ?: return chain.proceed()
+            val want = parsed.queryParameter("width")?.toIntOrNull() ?: 600
+            // Nearest size first, larger before smaller.
+            val alt = (120..1440 step 120).sortedWith(compareBy({ kotlin.math.abs(it - want) }, { -it }))
+                .firstNotNullOfOrNull { px -> graph.plex.artUrl(thumb, px)?.takeIf { it != url && cached(it) } }
+                ?: return chain.proceed()
+            return chain.withRequest(chain.request.newBuilder().data(alt).build()).proceed()
+        }
+    }
 
     companion object {
         lateinit var instance: App
@@ -90,13 +117,16 @@ class Graph(app: App) {
 
     /**
      * Away from home, library GETs read the disk cache without waiting on LAN addresses that
-     * only time out; a cache miss still tries the network, in case home came back.
+     * only time out; a cache miss still tries the network, briefly, in case home came back.
      */
     private val awayHttp = apiHttp.newBuilder().addInterceptor { chain ->
         val req = chain.request()
         if (reach.lastKnown || req.method != "GET") return@addInterceptor chain.proceed(req)
         val cached = chain.proceed(req.newBuilder().cacheControl(CacheControl.FORCE_CACHE).build())
-        if (cached.code != 504) cached else { cached.close(); chain.proceed(req) }
+        if (cached.code != 504) cached else {
+            cached.close()
+            chain.withConnectTimeout(2, TimeUnit.SECONDS).proceed(req)
+        }
     }.build()
 
     val plex = PlexClient(awayHttp, settings)
@@ -118,16 +148,20 @@ class Graph(app: App) {
     val coverage = StemCoverage(plex, stems, settings, app.filesDir, scope)
 
     private companion object {
-        /** Plex sends no cache headers; store everything, always revalidate. */
-        val cacheable = Interceptor { chain ->
+        /**
+         * Store everything, always revalidate. Plex marks every response "no-cache", which OkHttp
+         * stores but then never serves without the network, so offline the cache came up empty.
+         */
+        val cacheable = okhttp3.Interceptor { chain ->
             val resp = chain.proceed(chain.request())
-            if (resp.header("Cache-Control") == null && chain.request().method == "GET") {
+            val cc = resp.header("Cache-Control")?.trim()?.lowercase()
+            if ((cc == null || cc == "no-cache") && chain.request().method == "GET" && resp.isSuccessful) {
                 resp.newBuilder().removeHeader("Pragma").header("Cache-Control", "public, max-age=0").build()
             } else resp
         }
 
         /** On network failure, answer GETs from the disk cache if it has them. */
-        val offlineFallback = Interceptor { chain ->
+        val offlineFallback = okhttp3.Interceptor { chain ->
             val req = chain.request()
             try {
                 chain.proceed(req)

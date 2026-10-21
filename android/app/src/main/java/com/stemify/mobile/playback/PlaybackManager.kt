@@ -189,6 +189,13 @@ class PlaybackManager(
 
     fun playTracks(tracks: List<Track>, start: Int = 0, shuffle: Boolean = false) {
         if (tracks.isEmpty()) return
+        // Shuffle on the list that's already playing: keep the song going and deal the whole
+        // list out again in a new order, rather than starting over on a random song.
+        if (shuffle && isPlaying(tracks)) {
+            reshuffle()
+            if (!_playWhenReady.value) play()
+            return
+        }
         val items = tracks.map { QueueItem(nextUid++, it) }
         if (shuffle) {
             unshuffled = items
@@ -269,24 +276,42 @@ class PlaybackManager(
     }
 
     fun toggleShuffle() {
+        if (!_shuffle.value) return reshuffle()
         val q = _queue.value
-        val idx = _index.value
-        val cur = q.getOrNull(idx)
-        if (!_shuffle.value) {
-            unshuffled = q
-            val upcoming = q.drop(idx + 1).shuffled()
-            _queue.value = q.take(idx + 1) + upcoming
-            _shuffle.value = true
-        } else {
-            val orig = unshuffled ?: q
-            _queue.value = orig
-            _index.value = orig.indexOfFirst { it.uid == cur?.uid }.coerceAtLeast(0)
-            unshuffled = null
-            _shuffle.value = false
-        }
+        val cur = q.getOrNull(_index.value)
+        val orig = unshuffled ?: q
+        _queue.value = orig
+        _index.value = orig.indexOfFirst { it.uid == cur?.uid }.coerceAtLeast(0)
+        unshuffled = null
+        _shuffle.value = false
         requeueNext()
         changed()
         save()
+    }
+
+    /**
+     * The whole queue in a new random order, the playing song first, so everything gets played,
+     * including songs before the one you started on. Again while shuffled, a fresh order.
+     */
+    private fun reshuffle() {
+        val q = _queue.value
+        if (q.isEmpty()) return
+        val cur = q.getOrNull(_index.value)
+        val orig = unshuffled ?: q
+        unshuffled = orig
+        _queue.value = listOfNotNull(cur) + orig.filter { it.uid != cur?.uid }.shuffled()
+        if (cur != null) _index.value = 0
+        _shuffle.value = true
+        requeueNext()
+        changed()
+        save()
+    }
+
+    /** Is the queue (in its original order) these songs, with one of them playing? */
+    private fun isPlaying(tracks: List<Track>): Boolean {
+        if (_current.value == null) return false
+        val have = (unshuffled ?: _queue.value).map { it.track.ratingKey }
+        return have.size == tracks.size && have.sorted() == tracks.map { it.ratingKey }.sorted()
     }
 
     fun cycleRepeat() {
