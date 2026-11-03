@@ -34,6 +34,16 @@ QtObject {
         var m = Math.floor(ms / 60000)
         return m >= 60 ? Math.floor(m / 60) + " hr " + (m % 60) + " min" : m + " minute" + (m === 1 ? "" : "s")
     }
+    // "1973-03-01" -> "MAR.01.73"; "1973-03" -> "MAR.73"; a year alone stays as it is.
+    function releaseStamp(date) {
+        var m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?/.exec(String(date || "").trim())
+        if (!m) return ""
+        var month = parseInt(m[2]), day = parseInt(m[3])
+        if (!(month >= 1 && month <= 12)) return m[1]
+        var mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][month - 1]
+        var yy = m[1].slice(2)
+        return day >= 1 && day <= 31 ? mon + "." + (day < 10 ? "0" : "") + day + "." + yy : mon + "." + yy
+    }
     function songs(n) { return n + " song" + (n === 1 ? "" : "s") }
     function sum(list, key) { var t = 0; for (var i = 0; i < list.length; i++) t += list[i][key] || 0; return t }
     function gb(bytes) { return bytes < 1e9 ? (bytes / 1e6).toFixed(0) + " MB" : (bytes / 1e9).toFixed(1) + " GB" }

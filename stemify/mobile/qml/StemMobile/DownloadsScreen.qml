@@ -89,8 +89,8 @@ Page {
                 var d = page.byKey[a.key]
                 if (d.failed > 0) return a.artist + " · " + d.failed + " failed"
                 if (d.done < d.tracks.length) return a.artist + " · " + d.done + " of " + d.tracks.length
-                if (page.sort === 2 && d.released) return a.artist + " · " + d.released.slice(0, 4)
-                return a.artist
+                var when = Api.releaseStamp(d.released)
+                return when ? a.artist + " · " + when : a.artist
             }
             badge: (a) => {
                 var d = page.byKey[a.key]

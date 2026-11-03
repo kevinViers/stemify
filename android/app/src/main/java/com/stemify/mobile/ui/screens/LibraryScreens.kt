@@ -475,6 +475,19 @@ private class DownloadedAlbum(val album: Album, val records: List<DownloadRecord
 
 private fun artistSortKey(s: String) = s.trim().lowercase().removePrefix("the ")
 
+private val MONTHS = listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+/** "1973-03-01" -> "MAR.01.73"; "1973-03" -> "MAR.73"; a year alone stays as it is. */
+fun releaseStamp(date: String?): String? {
+    if (date.isNullOrBlank()) return null
+    val p = date.trim().split("-")
+    val year = p[0].takeIf { it.length == 4 && it.all(Char::isDigit) } ?: return null
+    val month = p.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..12 } ?: return year
+    val day = p.getOrNull(2)?.take(2)?.toIntOrNull()?.takeIf { it in 1..31 }
+    val yy = year.takeLast(2)
+    return if (day != null) "%s.%02d.%s".format(MONTHS[month - 1], day, yy) else "${MONTHS[month - 1]}.$yy"
+}
+
 @Composable
 fun DownloadsScreen() {
     val g = App.graph
@@ -586,8 +599,7 @@ fun DownloadsScreen() {
                 when {
                     d.failed > 0 -> "${a.artist} · ${d.failed} failed"
                     !d.complete -> "${a.artist} · ${d.done} of ${d.records.size}"
-                    sort == 2 && d.released != null -> "${a.artist} · ${d.released.take(4)}"
-                    else -> a.artist
+                    else -> releaseStamp(d.released)?.let { "${a.artist} · $it" } ?: a.artist
                 }
             },
             badge = { a ->
