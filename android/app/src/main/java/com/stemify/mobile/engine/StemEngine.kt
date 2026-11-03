@@ -94,6 +94,11 @@ class MeterHistory {
  * Mixes a [TrackSession]'s stems into one AudioTrack: per-stem gain (ramped), EQ with
  * anti-clip preamp, master gain, then a peak limiter. All AudioTrack calls happen on the
  * engine thread; the public methods just queue commands.
+ *
+ * Songs follow one another in the same AudioTrack: gaplessly, or crossfaded when the next one
+ * comes with a [CrossfadePlan], the ending song playing on as a fading [Tail] beside it. A song
+ * at another sample rate than the output is resampled, so changing songs never needs a new
+ * AudioTrack (and the gap that comes with one).
  */
 class StemEngine(private val listener: Listener) {
     interface Listener {
@@ -114,7 +119,29 @@ class StemEngine(private val listener: Listener) {
         }
     }
 
-    private class Segment(val writtenStart: Long, val token: Long, val frameStart: Long)
+    /** From output frame [writtenStart], [token] plays from its frame [frameStart]; [ratio] of its frames per output frame. */
+    private class Segment(val writtenStart: Long, val token: Long, val frameStart: Long, val rate: Int, val ratio: Double)
+
+    /** A session on its way to the output, resampled when its rate isn't the output's. */
+    private inner class Voice(val s: TrackSession, val outRate: Int) {
+        val rs = if (s.sampleRate != outRate) Resampler(s.sampleRate, outRate) else null
+        /** Its frames per output frame. */
+        val ratio = s.sampleRate.toDouble() / outRate
+        /** Feeds the meters and follows mixer changes; a fading tail does neither. */
+        var live = true
+        private val pull = { buf: FloatArray, off: Int, n: Int -> mixChunk(s, buf, off, min(n, CHUNK), live) }
+        private val done = { s.finished() }
+
+        /** Up to [max] output frames into [dest] from frame 0. */
+        fun render(dest: FloatArray, max: Int): Int = rs?.process(dest, max, pull, done) ?: mixChunk(s, dest, 0, max, live)
+
+        fun finished() = if (rs == null) s.finished() else rs.drained
+    }
+
+    /** The song that's ending, mixed under the next until [endFrame] (all in its own frames). */
+    private class Tail(val v: Voice, val endFrame: Long, val fadeFrom: Long, val fadeTo: Long) {
+        var pos = v.s.framePos.toDouble()
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val lock = Object()
@@ -122,7 +149,12 @@ class StemEngine(private val listener: Listener) {
     @Volatile private var released = false
 
     private var session: TrackSession? = null
+    private var voice: Voice? = null
     private var next: TrackSession? = null
+    private var nextPlan: CrossfadePlan? = null
+    private var tail: Tail? = null
+    private var fadeInFrames = 0L
+    private var fadeInDone = 0L
     private var wantPlay = false
     private var track: AudioTrack? = null
     private var trackRate = 0
@@ -142,6 +174,7 @@ class StemEngine(private val listener: Listener) {
     private var tsFrame = 0L
     private var tsNanos = 0L
     private var out = FloatArray(CHUNK * 2)
+    private var tailBuf = FloatArray(CHUNK * 2)
     private var tmp = FloatArray(CHUNK * 2)
 
     @Volatile var eqParams: EqParams? = null
@@ -175,10 +208,25 @@ class StemEngine(private val listener: Listener) {
         publish()
     }
 
-    /** The track to continue into gaplessly when the current one ends (or null). */
-    fun queueNext(s: TrackSession?) = post {
+    /**
+     * The track to continue into when the current one ends (or null): gaplessly, or crossfaded
+     * by [plan] (or later through [planNext], which also applies its offset).
+     */
+    fun queueNext(s: TrackSession?, plan: CrossfadePlan? = null) = post {
         if (next !== s) next?.release()
         next = s
+        nextPlan = if (s == null) null else plan
+    }
+
+    /**
+     * Sets how to cross into [s], if it's still the queued next track: its offset (leading silence
+     * skipped) is applied here, on the engine thread, so it can't race a switch already under way.
+     */
+    fun planNext(s: TrackSession, plan: CrossfadePlan?) = post {
+        if (next !== s) return@post
+        val off = ((plan?.inOffsetS ?: 0.0) * s.sampleRate).toLong()
+        if (s.framePos != off) s.startAt(off)
+        nextPlan = plan
     }
 
     fun setPlaying(play: Boolean) = post {
@@ -227,22 +275,36 @@ class StemEngine(private val listener: Listener) {
     // ---- engine thread ----------------------------------------------------------------
 
     private fun dropAll() {
+        dropTail()
+        fadeInFrames = 0
+        fadeInDone = 0
         session?.release()
         next?.release()
         session = null
+        voice = null
         next = null
+        nextPlan = null
         drainUntil = -1
         track?.let { it.pause(); it.flush() }
         written = 0
         segments.clear()
     }
 
+    private fun dropTail() {
+        tail?.v?.s?.release()
+        tail = null
+    }
+
     private fun resetOutput(s: TrackSession) {
+        dropTail()
+        fadeInFrames = 0
+        fadeInDone = 0
         track?.let { it.pause(); it.flush() }
         tsValid = false
         written = 0
+        voice = null
         segments.clear()
-        segments.addLast(Segment(0, s.token, s.framePos))
+        segments.addLast(Segment(0, s.token, s.framePos, s.sampleRate, 1.0))
         drainUntil = -1
         waitingSince = 0
         meters.clear()
@@ -308,17 +370,31 @@ class StemEngine(private val listener: Listener) {
             return
         }
         waitingSince = 0
-        ensureTrack(s.sampleRate)
+        // A new AudioTrack only when output starts afresh; songs joining a running one are resampled.
+        if (track == null || written == 0L && trackRate != s.sampleRate) ensureTrack(s.sampleRate)
         val t = track!!
         if (t.playState != AudioTrack.PLAYSTATE_PLAYING) t.play()
         setFlags(playing = true, buffering = false)
+        voice.let { if (it == null || it.s !== s || it.outRate != trackRate) voice = Voice(s, trackRate) }
+        if (tail == null) startCrossfade(s)
 
-        val n = mixChunk(s)
+        val cur = session!!
+        val v = voice!!
+        val n = v.render(out, CHUNK)
         if (n == 0) {
-            if (s.finished()) endOfTrack(s) else idle(2)
+            if (v.finished()) endOfTrack(cur) else idle(2)
             return
         }
-        eq.configure(eqParams, s.sampleRate)
+        if (fadeInDone < fadeInFrames) {
+            for (f in 0 until n) {
+                val g = Crossfade.fadeInGain((fadeInDone + f).toDouble() / fadeInFrames)
+                out[f * 2] *= g
+                out[f * 2 + 1] *= g
+            }
+            fadeInDone += n
+        }
+        tail?.let { mixTail(it, n) }
+        eq.configure(eqParams, trackRate)
         eq.process(out, n)
         val m = masterGain
         rampGain(out, n, masterCur, m)
@@ -334,20 +410,77 @@ class StemEngine(private val listener: Listener) {
         publish()
     }
 
+    /** Hands over to the next song once [s] reaches the plan's start, keeping [s] as the fading tail. */
+    private fun startCrossfade(s: TrackSession) {
+        val nx = next ?: return
+        val plan = nextPlan ?: return
+        val rate = s.sampleRate
+        val start = (plan.startS * rate).toLong()
+        if (s.framePos < start || nx.error() != null || !nx.ready(PREFILL)) return
+        val end = min((plan.endS * rate).toLong(), s.durationFrames)
+        if (start >= end || s.framePos >= end) {
+            // No overlap: cut straight over at the last sound, trailing silence dropped.
+            cutTo(nx, s)
+            return
+        }
+        var from = (plan.fadeFromS * rate).toLong()
+        var to = (plan.fadeToS * rate).toLong()
+        // Started late (a seek into the overlap, or the plan came late): fade over what's left.
+        if (s.framePos > start + rate / 10 && to > from) {
+            from = max(from, s.framePos)
+            to = min(end, max(to, from + rate / 2))
+        }
+        val outgoing = voice!!
+        outgoing.live = false
+        tail = Tail(outgoing, end, from, to)
+        segments.addLast(Segment(written, nx.token, nx.framePos, nx.sampleRate, nx.sampleRate.toDouble() / trackRate))
+        session = nx
+        voice = Voice(nx, trackRate)
+        next = null
+        nextPlan = null
+        fadeInFrames = (plan.inFadeS * trackRate).toLong()
+        fadeInDone = 0
+    }
+
+    /** Adds the fading tail under the [n] frames of the next song in [out]. */
+    private fun mixTail(t: Tail, n: Int) {
+        val v = t.v
+        val left = ((t.endFrame - t.pos) / v.ratio).toLong()
+        val m = if (left <= 0) 0 else v.render(tailBuf, min(n.toLong(), left).toInt())
+        val span = (t.fadeTo - t.fadeFrom).toDouble()
+        var p = t.pos
+        for (f in 0 until m) {
+            val g = if (span <= 0) 1f else Crossfade.fadeOutGain((p - t.fadeFrom) / span)
+            out[f * 2] += tailBuf[f * 2] * g
+            out[f * 2 + 1] += tailBuf[f * 2 + 1] * g
+            p += v.ratio
+        }
+        t.pos = p
+        if (left <= m || m < n && v.finished()) dropTail()
+    }
+
     private fun endOfTrack(s: TrackSession) {
         val nx = next
-        if (nx != null && nx.sampleRate == s.sampleRate && nx.error() == null) {
-            // Gapless: keep writing into the same AudioTrack.
-            segments.addLast(Segment(written, nx.token, nx.framePos))
-            session = nx
-            next = null
-            s.release()
+        if (nx != null && nx.error() == null) {
+            cutTo(nx, s)
             return
         }
         // Let the AudioTrack play out, then hand over.
         drainUntil = written
         drainToken = s.token
         drainDeadline = System.nanoTime() + (written * 1_000_000_000L / max(1, trackRate)) + 1_000_000_000L
+    }
+
+    /** Gapless: keeps writing into the same AudioTrack, [nx] (resampled if its rate differs) right after [s]. */
+    private fun cutTo(nx: TrackSession, s: TrackSession) {
+        dropTail()
+        fadeInFrames = 0
+        segments.addLast(Segment(written, nx.token, nx.framePos, nx.sampleRate, nx.sampleRate.toDouble() / trackRate))
+        session = nx
+        voice = Voice(nx, trackRate)
+        next = null
+        nextPlan = null
+        s.release()
     }
 
     private fun drain(s: TrackSession) {
@@ -362,6 +495,7 @@ class StemEngine(private val listener: Listener) {
         if (nx != null && nx.error() == null) {
             session = nx
             next = null
+            nextPlan = null
             s.release()
             resetOutput(nx)
             main.post { listener.onTransition(nx.token) }
@@ -375,24 +509,30 @@ class StemEngine(private val listener: Listener) {
         }
     }
 
-    private fun mixChunk(s: TrackSession): Int {
+    /**
+     * Up to [max] frames of [s]'s stems, mixed into [dest] from frame [off]. [live] mixes feed the
+     * meters and pick up mixer changes; a fading tail keeps the gains it had.
+     */
+    private fun mixChunk(s: TrackSession, dest: FloatArray, off: Int, max: Int, live: Boolean): Int {
         if (s.finished()) return 0
-        var n = CHUNK
+        var n = max
         for (d in s.decoders) {
             if (d.error != null || d.ring.eos && d.ring.availableFrames == 0) continue
             n = min(n, d.ring.availableFrames)
         }
         if (n <= 0) return 0
-        if (s.mixVersion != mixVersion) {
+        if (live && s.mixVersion != mixVersion) {
             val g = mix
             for (i in s.names.indices) s.target[i] = g[s.names[i]] ?: 1f
             s.mixVersion = mixVersion
         }
-        java.util.Arrays.fill(out, 0, n * 2, 0f)
+        java.util.Arrays.fill(dest, off * 2, (off + n) * 2, 0f)
         val stride = MeterHistory.MAX_STEMS
         val blocks = (n + MeterHistory.BLOCK - 1) / MeterHistory.BLOCK
-        if (meterSums.size < blocks * stride) meterSums = FloatArray(blocks * stride)
-        java.util.Arrays.fill(meterSums, 0f)
+        if (live) {
+            if (meterSums.size < blocks * stride) meterSums = FloatArray(blocks * stride)
+            java.util.Arrays.fill(meterSums, 0f)
+        }
         for ((i, d) in s.decoders.withIndex()) {
             val got = d.ring.read(tmp, n)
             if (got < n) java.util.Arrays.fill(tmp, got * 2, n * 2, 0f)
@@ -408,15 +548,15 @@ class StemEngine(private val listener: Listener) {
                 for (f in b * MeterHistory.BLOCK until end) {
                     val l = tmp[f * 2] * g
                     val r = tmp[f * 2 + 1] * g
-                    out[f * 2] += l
-                    out[f * 2 + 1] += r
+                    dest[(off + f) * 2] += l
+                    dest[(off + f) * 2 + 1] += r
                     sum += l * l + r * r
                     g += step
                 }
-                if (i < stride) meterSums[b * stride + i] = sqrt(sum / (2 * (end - b * MeterHistory.BLOCK)))
+                if (live && i < stride) meterSums[b * stride + i] = sqrt(sum / (2 * (end - b * MeterHistory.BLOCK)))
             }
         }
-        for (b in 0 until blocks) meters.add(s.token, s.framePos + b * MeterHistory.BLOCK, meterSums, b * stride, s.names.size)
+        if (live) for (b in 0 until blocks) meters.add(s.token, s.framePos + b * MeterHistory.BLOCK, meterSums, b * stride, s.names.size)
         s.framePos += n
         return n
     }
@@ -431,7 +571,6 @@ class StemEngine(private val listener: Listener) {
             g += step
         }
     }
-
     private fun ensureTrack(rate: Int) {
         if (track != null && trackRate == rate) return
         track?.let {
@@ -492,12 +631,12 @@ class StemEngine(private val listener: Listener) {
         }
         val seg = segments.firstOrNull()
         val s = session
-        val rate = if (s != null && s.decoders.isNotEmpty()) s.sampleRate else trackRate
         snapshot = if (seg == null) {
+            val rate = if (s != null && s.decoders.isNotEmpty()) s.sampleRate else trackRate
             Snapshot(s?.token ?: -1, s?.framePos ?: 0, rate, nanos, false)
         } else {
             val running = playing && drainUntil < 0 || drainUntil >= 0 && p < drainUntil
-            Snapshot(seg.token, seg.frameStart + max(0, p - seg.writtenStart), rate, nanos, running)
+            Snapshot(seg.token, seg.frameStart + (max(0, p - seg.writtenStart) * seg.ratio).toLong(), seg.rate, nanos, running)
         }
     }
 

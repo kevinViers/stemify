@@ -53,6 +53,7 @@ Pressable 1.0 Pressable.qml
 ProgressRing 1.0 ProgressRing.qml
 ProgressVolumeBar 1.0 ProgressVolumeBar.qml
 QualityScreen 1.0 QualityScreen.qml
+CrossfadeScreen 1.0 CrossfadeScreen.qml
 QueuePanel 1.0 QueuePanel.qml
 QueueToggle 1.0 QueueToggle.qml
 SearchField 1.0 SearchField.qml

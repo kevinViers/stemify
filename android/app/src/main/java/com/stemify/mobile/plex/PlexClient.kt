@@ -104,7 +104,7 @@ class PlexClient(private val http: OkHttpClient, private val settings: Settings)
         all("/library/sections/$section/all", "type" to 8, "sort" to "titleSort").map { it.toArtist() }
 
     suspend fun albums(sort: String = "titleSort"): List<Album> =
-        all("/library/sections/$section/all", "type" to 9, "sort" to sort).map { it.toAlbum() }
+        all("/library/sections/$section/all", "type" to 9, "sort" to sort, "includeGuids" to 1).map { it.toAlbum() }
 
     suspend fun recentlyAdded(count: Int = 20): List<Album> =
         get("/library/sections/$section/all", "type" to 9, "sort" to "addedAt:desc", start = 0, size = count)

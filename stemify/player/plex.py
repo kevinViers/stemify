@@ -58,6 +58,8 @@ def _album(m: dict) -> dict:
         "addedAt": m.get("addedAt") or 0,
         "genre": ", ".join(g.get("tag", "") for g in (m.get("Genre") or [])[:2]),
         "released": (m.get("originallyAvailableAt") or "")[:10],
+        # The MusicBrainz release the files are tagged with (listings need includeGuids=1).
+        "mbid": next((g["id"][7:] for g in m.get("Guid") or [] if g.get("id", "").startswith("mbid://")), ""),
     }
 
 
@@ -184,7 +186,7 @@ class Plex:
         return [_track(m) for m in self.all(f"/library/sections/{self.section}/all", progress, type=10, sort="titleSort")]
 
     def albums(self, sort="titleSort"):
-        return [_album(m) for m in self.all(f"/library/sections/{self.section}/all", type=9, sort=sort)]
+        return [_album(m) for m in self.all(f"/library/sections/{self.section}/all", type=9, sort=sort, includeGuids=1)]
 
     def tracks_page(self, start, size):
         """One page of every track by title, and the library's track count."""

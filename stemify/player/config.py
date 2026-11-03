@@ -22,6 +22,10 @@ DEFAULTS = {
     "stemRoots": [],
     "volume": 0.8,
     "keepMix": False,
+    # Between songs: off (gapless), short / medium / long (smart), or fixed crossfadeSeconds.
+    "crossfade": "off",
+    "crossfadeSeconds": 6,
+    "crossfadeAlbums": False,
     "showMixer": True,
     "gridlines": True,
     "zoom": 100,

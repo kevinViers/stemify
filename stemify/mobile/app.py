@@ -17,6 +17,10 @@ DEFAULTS = {
     "keepMix": True,
     "cacheLimitGb": 10,
     "downloadSort": 0,
+    "downloadReversed": False,
+    "crossfade": "off",
+    "crossfadeSeconds": 6,
+    "crossfadeAlbums": False,
     "musicSectionTitle": "",
     "volume": 0.85,
 }
@@ -89,6 +93,7 @@ def main():
     backend = Backend(cfg, plex, stems, art, config.CACHE_DIR)
     downloads = Downloads(cfg, plex, stems, art, DATA_DIR, config.CACHE_DIR, backend.opus_kbps)
     player = MobilePlayer(cfg, plex, stems, engine, downloads, backend.opus_kbps)
+    backend.crossfadeChanged.connect(player.replan)
     eq = EqController(os.path.join(DATA_DIR, "eq.json"), engine)
 
     qml = QQmlApplicationEngine()

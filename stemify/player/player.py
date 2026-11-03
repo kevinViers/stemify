@@ -12,7 +12,7 @@ import urllib.request
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
-from . import config
+from . import config, crossfade
 from .engine import Source
 from .stems import COLORS, sort_names
 
@@ -54,10 +54,12 @@ def _normalized(mix):
 class Player(QObject):
     changed = Signal()  # track, queue, play state
     mixChanged = Signal()
+    crossfadeChanged = Signal()
     waveChanged = Signal()
     toast = Signal(str)
     _loaded = Signal(int, object, object)  # token, Source or error, track
     _wave = Signal(int, object)
+    _next_ready = Signal(int, object)  # prep token, (Source, entry, plan, index) or error
 
     def __init__(self, cfg, plex, stems, engine, parent=None):
         super().__init__(parent)
@@ -79,7 +81,14 @@ class Player(QObject):
         self._queue_dirty = False
         self._loaded.connect(self._on_loaded)
         self._wave.connect(self._on_wave)
+        self._next_ready.connect(self._on_next_ready)
+        # The next song, opened and measured ahead so it follows gaplessly or crossfades.
+        self._prep_token = 0
+        self._next_info = None
+        self._cur_spec = None  # (names, paths) of the playing song, to measure its end
+        self._envelopes = {}   # "key|tail" / "key|head" -> crossfade.Envelope
         engine.ended.connect(self._on_ended)
+        engine.advanced.connect(self._on_advanced)
         engine.playingChanged.connect(self._on_play_state)
         engine.bufferingChanged.connect(self.changed)
         engine.setVolume(cfg.get("volume", 0.8))
@@ -207,6 +216,8 @@ class Player(QObject):
 
     def _queue_changed(self):
         self._queue_dirty = True
+        if self.engine.duration:
+            self._prepare_next(500)  # what follows may have changed
         if self.library:
             self.library.update_queue()
         self.changed.emit()
@@ -283,6 +294,8 @@ class Player(QObject):
     @Slot()
     def cycleRepeat(self):
         self.repeat = {"off": "all", "all": "one", "one": "off"}[self.repeat]
+        if self.engine.duration:
+            self._prepare_next(500)
         self.changed.emit()
         self._save_soon()
 
@@ -313,6 +326,8 @@ class Player(QObject):
             self._report_state("stopped")
         self._token += 1
         token = self._token
+        self._prep_token += 1  # whatever was being readied to follow no longer does
+        self._next_info = None
         self.index = i
         self._loading = True
         self._scrobbled = False
@@ -428,11 +443,134 @@ class Player(QObject):
         src, play, start, entry = result
         self.names = src.names
         self.source_kind = "stems" if entry else "original"
+        self._format = getattr(src, "fmt", "")
+        self._cur_spec = (src.names, src.paths)
         self.engine.set_source(src, start, play=play)
         self._push_mix()
         self.changed.emit()
         self._load_wave(token, track, entry)
+        self._prepare_next()
         self._save_soon()
+
+    # ---- what follows: gapless and crossfades ---------------------------------------------------
+    def _upcoming(self):
+        if not self.queue or self.index < 0:
+            return None
+        if self.repeat == "one":
+            return self.index
+        if self.index + 1 < len(self.queue):
+            return self.index + 1
+        return 0 if self.repeat == "all" else None
+
+    def _prepare_next(self, delay=4000):
+        """Opens the song that follows (after [delay] ms, so the playing one gets a head start),
+        measures the join, and queues it in the engine."""
+        self._prep_token += 1
+        tok = self._prep_token
+        self._next_info = None
+        self.engine.set_next(None)
+        QTimer.singleShot(delay, lambda: tok == self._prep_token and self._start_prep(tok))
+
+    def _start_prep(self, tok):
+        i = self._upcoming()
+        cur = self.current()
+        if i is None or cur is None or not self.engine.duration:
+            return
+        nxt, spec, out_dur, rate = self.queue[i], self._cur_spec, self.engine.duration, self.engine.rate
+        mode = self.cfg.get("crossfade", "off")
+        seconds = int(self.cfg.get("crossfadeSeconds", 6))
+        fade = (mode != "off" and spec is not None and self.repeat != "one"
+                and (self.cfg.get("crossfadeAlbums") or not crossfade.consecutive(cur, nxt)))
+
+        def work():
+            try:
+                src, entry = self._open(nxt)
+                if src.sr != rate:  # join the running stream at its rate
+                    old, src = src, src.reopen(rate)
+                    old.close()
+                plan = None
+                if fade:
+                    tail = self._envelope(cur["key"] + "|tail", lambda: Source(*spec), max(0.0, out_dur - crossfade.TAIL_S), crossfade.TAIL_S)
+                    head = self._envelope(nxt["key"] + "|head", lambda: src, 0.0, crossfade.HEAD_S, own=False)
+                    plan = crossfade.plan(mode, seconds, tail, out_dur, head, src.frames / src.sr)
+                    print(f"crossfade “{cur.get('title')}” → “{nxt.get('title')}” ({mode}): {plan}", flush=True)
+                self._next_ready.emit(tok, (src, entry, plan, i))
+            except Exception as e:  # noqa: BLE001 - the song loads the ordinary way when it's due
+                self._next_ready.emit(tok, e)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _envelope(self, key, open_src, start, length, own=True):
+        """The loudness of a stretch of a song, measured once. [own]: close the source after."""
+        if key in self._envelopes:
+            return self._envelopes[key]
+        src = None
+        try:
+            src = open_src()
+            e = crossfade.measure(src, start, length)
+        except Exception as ex:  # noqa: BLE001 - unmeasured songs still crossfade, plainly
+            print("couldn't measure", key, ex, flush=True)
+            return None
+        finally:
+            if own and src is not None:
+                src.close()
+        if len(self._envelopes) > 40:
+            self._envelopes.pop(next(iter(self._envelopes)))
+        self._envelopes[key] = e
+        return e
+
+    def _on_next_ready(self, tok, result):
+        if isinstance(result, Exception):
+            print("couldn't ready the next song:", result, flush=True)
+            return
+        src, entry, plan, i = result
+        if tok != self._prep_token or not (0 <= i < len(self.queue)):
+            src.close()
+            return
+        names = src.names
+        gains = self._gains_for(names, self.mix if self.cfg.get("keepMix") else {})
+        if self.engine.set_next(src, plan, gains):
+            self._next_info = {"index": i, "key": self.queue[i]["key"], "entry": entry, "names": names,
+                               "spec": (src.names, src.paths), "fmt": getattr(src, "fmt", "")}
+
+    def _on_advanced(self):
+        """The engine moved on to the song we queued."""
+        info, self._next_info = self._next_info, None
+        if not info:
+            return
+        prev = self.current()
+        if prev and not self._scrobbled:
+            threading.Thread(target=self.plex.scrobble, args=(prev["key"],), daemon=True).start()
+        i = info["index"]
+        if not (0 <= i < len(self.queue)) or self.queue[i]["key"] != info["key"]:
+            i = next((k for k, t in enumerate(self.queue) if t["key"] == info["key"]), self.index)
+        self._token += 1
+        token = self._token
+        self.index = i
+        self._scrobbled = False
+        self._pending_seek = 0.0
+        self.names = info["names"]
+        self.source_kind = "stems" if info["entry"] else "original"
+        self._format = info["fmt"]
+        self._cur_spec = info["spec"]
+        if not self.cfg.get("keepMix"):
+            self.mix = {}
+        track = self.current()
+        if self.library and track:
+            self.library.model.set_playing(track["key"], i)
+        self._wave_raw = None
+        self._push_mix()
+        self.changed.emit()
+        if track:
+            self._load_wave(token, track, info["entry"])
+        self._report_state("playing")
+        self._prepare_next()
+        self._save_soon()
+
+    @Slot()
+    def replan(self):
+        """Settings changed: ready what follows again under them."""
+        if self.engine.duration:
+            self._prepare_next(300)
 
     def _load_wave(self, token, track, entry):
         def work():
@@ -455,13 +593,17 @@ class Player(QObject):
             self.waveChanged.emit()
 
     # ---- mix -----------------------------------------------------------------------------------
-    def _push_mix(self):
-        any_solo = any(_setting(self.mix, n)[2] for n in self.names)
+    @staticmethod
+    def _gains_for(names, mix):
+        any_solo = any(_setting(mix, n)[2] for n in names)
         gains = []
-        for n in self.names:
-            level, muted, solo = _setting(self.mix, n)
+        for n in names:
+            level, muted, solo = _setting(mix, n)
             gains.append(0.0 if (any_solo and not solo) or muted else stem_taper(level))
-        self.engine.set_gains(gains)
+        return gains
+
+    def _push_mix(self):
+        self.engine.set_gains(self._gains_for(self.names, self.mix))
         self.mixChanged.emit()
         self.waveChanged.emit()
         self._save_soon()
@@ -607,6 +749,37 @@ class Player(QObject):
     def setKeepMix(self, on):
         self.cfg["keepMix"] = on
         self.mixChanged.emit()
+        self._save_soon()
+
+    def _get_crossfade_label(self):
+        mode = self.cfg.get("crossfade", "off")
+        if mode == "fixed":
+            return f"Fixed: {int(self.cfg.get('crossfadeSeconds', 6))} s"
+        return {"off": "Off (gapless)", "short": "Smart: Short", "medium": "Smart: Medium", "long": "Smart: Long"}.get(mode, "Off")
+
+    crossfade = Property(str, lambda self: self.cfg.get("crossfade", "off"), notify=crossfadeChanged)
+    crossfadeSeconds = Property(int, lambda self: int(self.cfg.get("crossfadeSeconds", 6)), notify=crossfadeChanged)
+    crossfadeAlbums = Property(bool, lambda self: bool(self.cfg.get("crossfadeAlbums")), notify=crossfadeChanged)
+    crossfadeLabel = Property(str, _get_crossfade_label, notify=crossfadeChanged)
+
+    @Slot(str, int)
+    def setCrossfade(self, mode, seconds):
+        """mode: off, short, medium, long or fixed (seconds is used by fixed)."""
+        if mode not in crossfade.MODES:
+            return
+        self.cfg["crossfade"] = mode
+        if seconds > 0:
+            lo, hi = crossfade.FIXED_RANGE
+            self.cfg["crossfadeSeconds"] = max(lo, min(hi, int(seconds)))
+        self.crossfadeChanged.emit()
+        self.replan()
+        self._save_soon()
+
+    @Slot(bool)
+    def setCrossfadeAlbums(self, on):
+        self.cfg["crossfadeAlbums"] = bool(on)
+        self.crossfadeChanged.emit()
+        self.replan()
         self._save_soon()
 
 

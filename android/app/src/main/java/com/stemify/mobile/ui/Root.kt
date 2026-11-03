@@ -73,6 +73,7 @@ import com.stemify.mobile.ui.screens.NowPlayingScreen
 import com.stemify.mobile.ui.screens.PlaylistScreen
 import com.stemify.mobile.ui.screens.PlaylistsScreen
 import com.stemify.mobile.ui.screens.PlexAccountScreen
+import com.stemify.mobile.ui.screens.CrossfadeScreen
 import com.stemify.mobile.ui.screens.QualityScreen
 import com.stemify.mobile.ui.screens.SearchScreen
 import com.stemify.mobile.ui.screens.SettingsScreen
@@ -107,6 +108,7 @@ private fun Screen(route: Route) = when (route) {
     Route.PlexAccount -> PlexAccountScreen()
     Route.StemServer -> StemServerScreen()
     Route.Quality -> QualityScreen()
+    Route.Crossfade -> CrossfadeScreen()
     Route.Storage -> StorageScreen()
     Route.Appearance -> AppearanceScreen()
     is Route.ArtistPage -> ArtistScreen(route.artist)

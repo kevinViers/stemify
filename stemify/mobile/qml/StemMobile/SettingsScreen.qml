@@ -23,6 +23,10 @@ Page {
                    value: !eq.info.enabled ? "Off" : eq.profile.name || "On"
                    tap: () => Ui.push("EqScreen") }
             Cell { title: "Stem Quality"; icon: "gauge"; iconBg: "#FF2D55"; chevron: true; value: page.q.label; tap: () => Ui.push("QualityScreen") }
+            Cell { title: "Crossfade"; icon: "shuffle"; iconBg: "#FF9F0A"; chevron: true
+                   value: { var m = page.s.crossfade || "off"
+                            return m === "off" ? "Off" : m === "fixed" ? (page.s.crossfadeSeconds || 6) + " s" : "Smart · " + m.charAt(0).toUpperCase() + m.slice(1) }
+                   tap: () => Ui.push("CrossfadeScreen") }
             Cell { title: "Keep Stem Mix Between Songs"; icon: "speakerWave"; iconBg: "#5856D6"
                    IosSwitch { checked: !!page.s.keepMix; toggled: (v) => app.set("keepMix", v) } }
         }

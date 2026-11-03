@@ -272,6 +272,48 @@ Rectangle {
                 checked: player.keepMix
                 onToggled: player.setKeepMix(!player.keepMix)
             }
+
+            Row {
+                spacing: 8
+                T { height: 22; text: "Crossfade:" }
+                Rectangle {
+                    width: 150
+                    height: 22
+                    color: X.paper
+                    border.color: xm.containsMouse ? X.accent : X.borderStrong
+                    T { x: 6; height: parent.height; width: parent.width - 24; text: player.crossfadeLabel }
+                    Ico { anchors.right: parent.right; anchors.rightMargin: 5; anchors.verticalCenter: parent.verticalCenter; name: "dropdown"; size: 10 }
+                    MouseArea { id: xm; anchors.fill: parent; hoverEnabled: true; onClicked: crossfadeMenu.popup() }
+                }
+            }
+            XCheck {
+                text: "Crossfade songs in order on an album"
+                checked: player.crossfadeAlbums
+                onToggled: player.setCrossfadeAlbums(!player.crossfadeAlbums)
+            }
+        }
+    }
+
+    // Smart lengths cap the overlap; Fixed always overlaps by its seconds. The tick is the icon,
+    // so the menu's own Office styling draws it (a checkable Action would also unbind checked).
+    XMenu {
+        id: crossfadeMenu
+        Action { text: "Off (gapless)"; icon.name: player.crossfade === "off" ? "check" : ""; onTriggered: player.setCrossfade("off", 0) }
+        MenuSeparator {}
+        Action { text: "Smart: Short (up to 4 s)"; icon.name: player.crossfade === "short" ? "check" : ""; onTriggered: player.setCrossfade("short", 0) }
+        Action { text: "Smart: Medium (up to 7 s)"; icon.name: player.crossfade === "medium" ? "check" : ""; onTriggered: player.setCrossfade("medium", 0) }
+        Action { text: "Smart: Long (up to 12 s)"; icon.name: player.crossfade === "long" ? "check" : ""; onTriggered: player.setCrossfade("long", 0) }
+        MenuSeparator {}
+        Instantiator {
+            model: 12
+            delegate: Action {
+                required property int index
+                text: "Fixed: " + (index + 1) + " s"
+                icon.name: player.crossfade === "fixed" && player.crossfadeSeconds === index + 1 ? "check" : ""
+                onTriggered: player.setCrossfade("fixed", index + 1)
+            }
+            onObjectAdded: (i, o) => crossfadeMenu.insertAction(6 + i, o)
+            onObjectRemoved: (i, o) => crossfadeMenu.removeAction(o)
         }
     }
 

@@ -12,6 +12,7 @@ from PySide6.QtGui import QDesktopServices, QGuiApplication
 from ..player import config
 from ..player.plex import PlexError
 from .art import album_color
+from .releases import ReleaseDates, release_day
 
 # How stems travel from stemserve when they aren't on a mounted share; Opus is made (and kept)
 # on the server. Same choices as the phone.
@@ -23,13 +24,15 @@ QUALITIES = [
 ]
 
 # Settings the screens may change with app.set().
-EDITABLE = {"theme", "accent", "albumColor", "stemQuality", "keepMix", "cacheLimitGb", "downloadSort",
+EDITABLE = {"theme", "accent", "albumColor", "stemQuality", "keepMix", "cacheLimitGb", "downloadSort", "downloadReversed",
+            "crossfade", "crossfadeSeconds", "crossfadeAlbums",
             "plexUrl", "stemUrl", "stemToken", "stemsDir", "musicDir", "musicSection", "musicSectionTitle", "sectionLocations"}
 COVERAGE_STALE = 6 * 3600
 
 
 class Backend(QObject):
     settingsChanged = Signal()
+    crossfadeChanged = Signal()
     statusChanged = Signal()
     indexChanged = Signal()
     coverageChanged = Signal()
@@ -50,6 +53,7 @@ class Backend(QObject):
         self._pin = ""
         self._pin_error = ""
         self._cov_file = os.path.join(cache_dir, "coverage.json")
+        self.release_dates = ReleaseDates(os.path.join(cache_dir, "release-dates.json"))
         self._listing = None
         self._albums_cov, self._artists_cov, self._cov_ready = {}, {}, False
         self._done.connect(lambda fn, v: fn(v))
@@ -95,6 +99,8 @@ class Backend(QObject):
         self.cfg[key] = value
         config.save(self.cfg)
         self.settingsChanged.emit()
+        if key.startswith("crossfade"):
+            self.crossfadeChanged.emit()
         if key == "musicSection":
             self._listing = None
             self._recompute()
@@ -131,6 +137,13 @@ class Backend(QObject):
 
     def api_albums(self, sort="titleSort"):
         return self.plex.albums(sort)
+
+    def api_albumDays(self):
+        """Every album, with "day": when it first came out ("" when the day isn't known), for On This Day,
+        and "firstRelease": MusicBrainz's date even when it's only a year or month, for sorting."""
+        albums = self.plex.albums()
+        mb = self.release_dates.resolve(a["mbid"] for a in albums)
+        return [a | {"day": release_day(a, mb), "firstRelease": mb.get(a["mbid"], "")} for a in albums]
 
     def api_artists(self):
         return self.plex.artists()

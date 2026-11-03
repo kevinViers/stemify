@@ -5,8 +5,11 @@ Page {
     title: "Downloads"
     readonly property var sorts: ["Download Order", "Artist", "Release Date"]
     readonly property int sort: app.settings.downloadSort || 0
-    // Release days come from the album list.
-    Fetch { id: infoFetch; name: "albums"; args: ["titleSort"]; deps: app.settings.musicSection; active: app.settings.signedIn }
+    // Download order and release date list newest first and an artist's albums oldest first, unless reversed.
+    function newestFirst(s, reversed) { return (s !== 1) !== !!reversed }
+    readonly property bool newest: newestFirst(sort, app.settings.downloadReversed)
+    // Release days come from the album list, checked against MusicBrainz (Plex has some wrong).
+    Fetch { id: infoFetch; name: "albumDays"; deps: app.settings.musicSection; active: app.settings.signedIn }
     readonly property var infoByKey: { var m = {}; (infoFetch.value || []).forEach(a => m[a.key] = a); return m }
 
     // Downloaded songs gathered back into their albums.
@@ -25,19 +28,23 @@ Page {
             var tr = rs.slice().sort((a, b) => (a.disc || 0) - (b.disc || 0) || (a.index || 0) - (b.index || 0) || a.title.localeCompare(b.title))
             return { album: album, tracks: tr, added: Math.max.apply(null, rs.map(r => r.added)),
                      done: rs.filter(r => r.done).length, failed: rs.filter(r => r.error).length,
-                     released: known && known.released ? known.released : String((known && known.year) || t.year || "") }
+                     released: known && (known.firstRelease || known.released) ? (known.firstRelease || known.released) : String((known && known.year) || t.year || "") }
         })
         function artistKey(s) { return (s || "").trim().toLowerCase().replace(/^the /, "") }
-        if (sort === 1) out.sort((a, b) => artistKey(a.album.artist).localeCompare(artistKey(b.album.artist)) || a.released.localeCompare(b.released) || a.album.title.localeCompare(b.album.title))
-        else if (sort === 2) out.sort((a, b) => b.released.localeCompare(a.released) || a.album.title.localeCompare(b.album.title))
-        else out.sort((a, b) => b.added - a.added)
+        var dir = newest ? -1 : 1
+        function date(a, b) { return dir * a.released.localeCompare(b.released) }
+        if (sort === 1) out.sort((a, b) => artistKey(a.album.artist).localeCompare(artistKey(b.album.artist)) || date(a, b) || a.album.title.localeCompare(b.album.title))
+        else if (sort === 2) out.sort((a, b) => date(a, b) || a.album.title.localeCompare(b.album.title))
+        else out.sort((a, b) => dir * (a.added - b.added))
         return out
     }
     readonly property var byKey: { var m = {}; albums.forEach(d => m[d.album.key] = d); return m }
     readonly property var allDone: { var o = []; albums.forEach(d => d.tracks.forEach(t => { if (t.done) o.push(t) })); return o }
 
     trailing: [
-        TextButton { visible: page.albums.length > 0; text: "Sort"; tap: () => Ui.actions("Sort By", page.sorts.map((s, i) => ({ title: (i === page.sort ? "✓ " : "") + s, run: () => app.set("downloadSort", i) }))) },
+        TextButton { visible: page.albums.length > 0; text: "Sort"; tap: () => Ui.actions("Sort By", page.sorts.map((s, i) => ({ title: (i === page.sort ? "✓ " : "") + s, run: () => app.set("downloadSort", i) }))
+            .concat([true, false].map(n => ({ title: (n === page.newest ? "✓ " : "") + (n ? "Newest First" : "Oldest First"),
+                                              run: () => app.set("downloadReversed", n !== page.newestFirst(page.sort, false)) })))) },
         IconButton {
             visible: page.albums.length > 0
             icon: "ellipsis"

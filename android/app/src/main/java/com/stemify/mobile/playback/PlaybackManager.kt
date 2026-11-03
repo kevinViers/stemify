@@ -18,7 +18,12 @@ import com.stemify.mobile.cache.MediaCache
 import com.stemify.mobile.core.AppJson
 import com.stemify.mobile.core.Settings
 import com.stemify.mobile.core.StemQuality
+import com.stemify.mobile.engine.Crossfade
+import com.stemify.mobile.engine.CrossfadeMode
+import com.stemify.mobile.engine.CrossfadePlan
+import com.stemify.mobile.engine.Envelope
 import com.stemify.mobile.engine.EqParams
+import com.stemify.mobile.engine.LoudnessMeter
 import com.stemify.mobile.engine.ResourceDataSource
 import com.stemify.mobile.engine.StemDecoder
 import com.stemify.mobile.engine.StemEngine
@@ -34,7 +39,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -151,6 +160,15 @@ class PlaybackManager(
     private var nextIndex = -1
     private var nextEntry: StemEntry? = null
     private var currentEntry: StemEntry? = null
+    /** Where the playing and the queued song's audio comes from, and how long they are, for crossfades. */
+    private var currentSources: List<Source> = emptyList()
+    private var nextSources: List<Source> = emptyList()
+    private var currentDurS = 0.0
+    private var nextDurS = 0.0
+    /** Measured song ends and starts ("key|tail", "key|head"), so a re-plan doesn't decode them again. */
+    private val envelopes = object : LinkedHashMap<String, Envelope>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Envelope>?) = size > 40
+    }
     private var pendingPositionMs = 0L
     private var failures = 0
     private var scrobbled = -1L
@@ -161,6 +179,11 @@ class PlaybackManager(
         engine.eqParams = eq.currentParams()
         engine.masterGain = masterTaper(_master.value)
         restore()
+        // A new crossfade setting applies from the next change of song.
+        scope.launch {
+            merge(settings.crossfade.flow.drop(1), settings.crossfadeSeconds.flow.drop(1), settings.crossfadeAlbums.flow.drop(1))
+                .collect { requeueNext() }
+        }
         scope.launch {
             while (isActive) {
                 delay(10_000)
@@ -491,11 +514,15 @@ class PlaybackManager(
         loadJob = scope.launch {
             var session: TrackSession? = null
             try {
-                val (s, entry) = withContext(Dispatchers.IO) { open(item.track, positionMs) }
+                val opened = withContext(Dispatchers.IO) { open(item.track, positionMs) }
+                val s = opened.session
+                val entry = opened.entry
                 session = s
                 if (!isActive) throw CancellationException()
                 currentToken = s.token
                 currentEntry = entry
+                currentSources = opened.sources
+                currentDurS = s.durationFrames.toDouble() / s.sampleRate
                 applySession(s, entry)
                 engine.load(s, _playWhenReady.value)
                 session = null
@@ -536,8 +563,13 @@ class PlaybackManager(
         changed()
     }
 
+    /** (stem name, cache key, URL): one stream of a song. */
+    private class Source(val name: String, val key: String, val url: String)
+
+    private class Opened(val session: TrackSession, val entry: StemEntry?, val sources: List<Source>)
+
     /** Opens every stem (or the original file) and waits for the decoders to know their format. */
-    private fun open(track: Track, startMs: Long): Pair<TrackSession, StemEntry?> {
+    private fun open(track: Track, startMs: Long): Opened {
         // A download plays from exactly the files it saved, server or no server.
         val held = downloads.offlineCopy(track)
         val entry = if (held != null) held.entry else stems.find(track)
@@ -567,7 +599,7 @@ class PlaybackManager(
             if (decoders.any { it.sampleRate != rate }) throw IOException("Stems have mixed sample rates")
             val s = TrackSession(++tokens, decoders.map { it.name }, decoders)
             if (startMs > 0) s.startAt(startMs * rate / 1000)
-            return s to entry
+            return Opened(s, entry, sources.map { (n, k, u) -> Source(n, k, u) })
         } catch (e: Exception) {
             decoders.forEach { it.release() }
             throw e
@@ -582,30 +614,124 @@ class PlaybackManager(
         return StemQuality.entries.firstOrNull { cache.isComplete(stemKey(entry, f.file, f.size, it)) } ?: want
     }
 
-    /** Builds the next track's session now so the switch can be gapless. */
+    /**
+     * Builds the next track's session now so the switch can be gapless, then measures the end
+     * of this song and the start of that one to plan the crossfade (see [Crossfade]). The session
+     * is queued first, so a gapless switch is ready even before the plan is.
+     */
     private fun prepareNext() {
         nextJob?.cancel()
         nextToken = -1
         engine.queueNext(null)
         val i = upcomingIndex() ?: return
         val item = _queue.value[i]
+        val from = _current.value?.track
+        val fromSources = currentSources
+        val fromDurS = currentDurS
         nextJob = scope.launch {
             delay(4_000) // let the current track's stems get a head start
             var session: TrackSession? = null
             try {
-                val (s, entry) = withContext(Dispatchers.IO) { open(item.track, 0) }
+                val opened = withContext(Dispatchers.IO) { open(item.track, 0) }
+                val s = opened.session
                 session = s
                 if (!isActive) throw CancellationException()
                 nextToken = s.token
                 nextIndex = i
-                nextEntry = entry
+                nextEntry = opened.entry
+                nextSources = opened.sources
+                nextDurS = s.durationFrames.toDouble() / s.sampleRate
                 engine.queueNext(s)
                 session = null
+                if (from != null) {
+                    val plan = withContext(Dispatchers.IO) {
+                        planCrossfade(from, fromSources, fromDurS, item.track, opened.sources, nextDurS)
+                    }
+                    if (plan != null && isActive) engine.planNext(s, plan)
+                }
             } catch (e: CancellationException) {
                 session?.release()
             } catch (e: Exception) {
                 session?.release() // the normal load path will report it
             }
+        }
+    }
+
+    /** How to cross from [a] into [b], or null to keep the switch plainly gapless. */
+    private suspend fun planCrossfade(a: Track, aSources: List<Source>, aDurS: Double, b: Track, bSources: List<Source>, bDurS: Double): CrossfadePlan? {
+        val mode = settings.crossfade.value
+        if (mode == CrossfadeMode.Off || aDurS <= 0 || bDurS <= 0 || aSources.isEmpty() || bSources.isEmpty()) return null
+        if (_repeat.value == RepeatMode.One) return null
+        if (!settings.crossfadeAlbums.value && Crossfade.consecutive(a.albumKey, a.disc, a.index, b.albumKey, b.disc, b.index)) return null
+        val tail = envelope("${a.ratingKey}|tail", aSources, maxOf(0.0, aDurS - Crossfade.TAIL_S), Crossfade.TAIL_S)
+        val head = envelope("${b.ratingKey}|head", bSources, 0.0, Crossfade.HEAD_S)
+        val plan = Crossfade.plan(mode, settings.crossfadeSeconds.value, tail, aDurS, head, bDurS)
+        Log.i(TAG, "crossfade “${a.title}” → “${b.title}” ($mode): $plan")
+        return plan
+    }
+
+    private suspend fun envelope(key: String, sources: List<Source>, startS: Double, lengthS: Double): Envelope? {
+        synchronized(envelopes) { envelopes[key] }?.let { return it }
+        val e = try {
+            measure(sources, startS, lengthS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "couldn't measure $key", e)
+            null
+        }
+        if (e != null) synchronized(envelopes) { envelopes[key] = e }
+        return e
+    }
+
+    /**
+     * Loudness of a song's streams (stems summed) from [startS] for [lengthS], decoded on their
+     * own decoders. The bytes land in the media cache, so playing that part later reuses them.
+     */
+    private suspend fun measure(sources: List<Source>, startS: Double, lengthS: Double): Envelope? {
+        val decoders = sources.map { src ->
+            val res = cache.acquire(src.key) { src.url }
+            StemDecoder("probe-${src.name}", ResourceDataSource(res) { cache.release(res) }, PROBE_RING)
+        }
+        try {
+            decoders.forEach { it.start(0, 0) }
+            if (decoders.any { !it.awaitPrepared(15_000) }) return null
+            val rate = decoders.first().sampleRate
+            if (decoders.any { it.sampleRate != rate }) return null
+            val first = (startS * rate).toLong()
+            decoders.forEach { it.seek(1, first) }
+            val want = (lengthS * rate).toLong()
+            val meter = LoudnessMeter(rate)
+            val mix = FloatArray(PROBE_CHUNK * 2)
+            val tmp = FloatArray(PROBE_CHUNK * 2)
+            val deadline = System.nanoTime() + 30_000_000_000L
+            var got = 0L
+            while (got < want) {
+                currentCoroutineContext().ensureActive()
+                if (System.nanoTime() > deadline) return null
+                var n = minOf(PROBE_CHUNK.toLong(), want - got).toInt()
+                var ended = true
+                for (d in decoders) {
+                    if (d.error != null) return null
+                    if (d.readyGen != 1 && d.readyGen != Int.MAX_VALUE) { n = 0; ended = false; continue }
+                    val a = d.ring.availableFrames
+                    if (d.ring.eos && a == 0) continue  // a stem that's run out doesn't hold the others back
+                    ended = false
+                    n = minOf(n, a)
+                }
+                if (ended) break
+                if (n == 0) { delay(3); continue }
+                java.util.Arrays.fill(mix, 0, n * 2, 0f)
+                for (d in decoders) {
+                    val r = d.ring.read(tmp, n)
+                    for (k in 0 until r * 2) mix[k] += tmp[k]
+                }
+                meter.add(mix, n)
+                got += n
+            }
+            return meter.result(first.toDouble() / rate)
+        } finally {
+            decoders.forEach { it.release() }
         }
     }
 
@@ -651,6 +777,8 @@ class PlaybackManager(
         _index.value = nextIndex
         _current.value = _queue.value.getOrNull(nextIndex)
         currentEntry = nextEntry
+        currentSources = nextSources
+        currentDurS = nextDurS
         pendingPositionMs = 0
         scrobbled = -1
         val item = _current.value ?: return
@@ -803,6 +931,9 @@ class PlaybackManager(
     companion object {
         const val RING_FRAMES = StemEngine.RING_SECONDS * 48_000
         const val WAVE_BUCKETS = 256
+        /** Measuring a song for a crossfade: its own small rings, read in these steps. */
+        private const val PROBE_RING = 48_000
+        private const val PROBE_CHUNK = 4096
         private const val TAG = "StemPlayback"
 
         fun stemKey(entry: StemEntry, file: String, size: Long, q: StemQuality) = "stem|${entry.key}|$file|$size|${q.name}"

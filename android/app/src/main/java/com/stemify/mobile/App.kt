@@ -143,6 +143,8 @@ class Graph(app: App) {
         mediaHttp.newBuilder().readTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build(),
         plex, settings, app.filesDir, scope,
     )
+    /** When albums first came out, from MusicBrainz, for On This Day. */
+    val releaseDates = com.stemify.mobile.plex.ReleaseDates(mediaHttp.newBuilder().readTimeout(20, TimeUnit.SECONDS).build(), app.filesDir)
     val downloads = Downloads(app, settings, plex, stems, cache, net, lyrics, scope)
     val playback = PlaybackManager(app, settings, plex, stems, cache, downloads, eq, scope) { reach.lastKnown }
     val coverage = StemCoverage(plex, stems, settings, app.filesDir, scope)

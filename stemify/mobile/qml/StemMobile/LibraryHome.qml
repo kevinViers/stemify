@@ -5,7 +5,8 @@ Page {
     id: page
     title: "Library"
     readonly property bool ready: app.settings.signedIn
-    Fetch { id: albumsFetch; name: "albums"; args: ["titleSort"]; deps: app.settings.musicSection; active: page.ready }
+    // Albums with the day each first came out, checked against MusicBrainz (see releases.py).
+    Fetch { id: albumsFetch; name: "albumDays"; deps: app.settings.musicSection; active: page.ready }
 
     // Albums released on today's date in earlier years, and, for slow days, the three days either side.
     readonly property var days: {
@@ -13,7 +14,7 @@ Page {
         today = new Date(y, today.getMonth(), today.getDate())
         var all = [], list = albumsFetch.value || []
         for (var i = 0; i < list.length; i++) {
-            var p = (list[i].released || "").split("-")
+            var p = (list[i].day || "").split("-")
             if (p.length < 3 || +p[0] >= y) continue
             var m = +p[1] - 1, d = +p[2]
             if (m === 1 && d === 29 && new Date(y, 1, 29).getMonth() !== 1) d = 28  // Feb 29 falls back to Feb 28

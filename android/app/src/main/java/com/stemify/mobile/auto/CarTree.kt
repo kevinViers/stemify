@@ -21,6 +21,9 @@ object CarIds {
     fun albumLetter(letter: String) = "albums:$letter"
     fun artistLetter(letter: String) = "artists:$letter"
     fun search(query: String) = "search:$query"
+    /** What's on the phone of a playlist or album, as listed under Downloads. */
+    fun downloadedPlaylist(key: String) = "dlplaylist:$key"
+    fun downloadedAlbum(key: String) = "dlalbum:$key"
 
     fun play(container: String, trackKey: String) = "play|$trackKey|$container"
     fun shuffle(container: String) = "shuffle|$container"

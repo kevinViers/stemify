@@ -90,7 +90,14 @@ class Settings(context: Context) {
     val downloadsWifiOnly = bool("downloadsWifiOnly", true)
     /** Downloads page order: 0 download order, 1 artist, 2 release date. */
     val downloadSort = int("downloadSort", 0)
+    /** Flips the sort's dates: oldest first for download order and release date, newest first within an artist. */
+    val downloadReversed = bool("downloadReversed", false)
     val keepStemMix = bool("keepStemMix", true)
+    /** Between songs: off (gapless), smart (Short, Medium, Long caps), or fixed [crossfadeSeconds]. */
+    val crossfade = enum("crossfade", com.stemify.mobile.engine.CrossfadeMode.Off)
+    val crossfadeSeconds = int("crossfadeSeconds", 6)
+    /** Crossfade between songs that follow each other on an album too (off: albums stay gapless). */
+    val crossfadeAlbums = bool("crossfadeAlbums", false)
     /** Look up lyrics on LRCLIB (lrclib.net) when Plex has none, sending it the song's title and artist. */
     val onlineLyrics = bool("onlineLyrics", true)
     val masterVolume = float("masterVolume", 0.85f)

@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.stemify.mobile.App
 import com.stemify.mobile.plex.Album
 import com.stemify.mobile.plex.Artist
+import com.stemify.mobile.plex.ReleaseDates
 import com.stemify.mobile.plex.Track
 import com.stemify.mobile.cache.DownloadRecord
 import com.stemify.mobile.ui.components.Artwork
@@ -90,7 +92,11 @@ fun LibraryHome() {
     val section by g.settings.musicSection.flow.collectAsState()
     val today = remember { LocalDate.now() }
     val albums = rememberLoader("albums:$section") { g.plex.albums() }
-    val days = remember(albums.value, today) { albums.value?.let { birthdays(it, today) } }
+    // Release dates checked against MusicBrainz; null while the first lookup runs (about 30 s, once).
+    val mb by produceState<Map<String, String>?>(null, albums.value) {
+        value = albums.value?.let { list -> g.releaseDates.resolve(list.mapNotNull { it.mbid }) }
+    }
+    val days = remember(albums.value, mb, today) { mb?.let { m -> albums.value?.let { birthdays(it, m, today) } } }
     val ready = token.isNotEmpty() && section.isNotEmpty()
 
     Page("Library") {
@@ -120,8 +126,8 @@ fun LibraryHome() {
             when (val s = albums.state.value) {
                 Load.Loading -> item("dayLoading") { LoadingRow() }
                 is Load.Err -> item("dayErr") { ErrorRow(s.message) { albums.refresh(true) } }
-                is Load.Ok -> {
-                    val (onDay, week) = days ?: (emptyList<Birthday>() to emptyList())
+                is Load.Ok -> if (days == null) item("dayLoading") { LoadingRow() } else {
+                    val (onDay, week) = days
                     if (onDay.isNotEmpty()) {
                         albumGrid("today", onDay.map { it.album }, onClick = { nav.push(Route.AlbumPage(it)) }, onLongClick = { menu.album(it) },
                             subtitle = { a -> onDay.first { it.album === a }.let { "${a.artist} · ${yearsAgo(it.years)}" } })
@@ -152,9 +158,9 @@ private class Birthday(val album: Album, val date: LocalDate, val years: Int)
 private fun yearsAgo(n: Int) = if (n == 1) "1 year ago" else "$n years ago"
 
 /** Albums released on [today]'s date in earlier years, and, for slow days, the three days either side. */
-private fun birthdays(albums: List<Album>, today: LocalDate): Pair<List<Birthday>, List<Birthday>> {
+private fun birthdays(albums: List<Album>, mb: Map<String, String>, today: LocalDate): Pair<List<Birthday>, List<Birthday>> {
     val all = albums.mapNotNull { a ->
-        val d = a.released?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: return@mapNotNull null
+        val d = ReleaseDates.releaseDay(a, mb) ?: return@mapNotNull null
         if (d.year >= today.year) return@mapNotNull null
         val anniversary = d.withYear(today.year)  // Feb 29 falls back to Feb 28
         Birthday(a, anniversary, today.year - d.year)
@@ -455,6 +461,9 @@ fun ArtistScreen(artist: Artist) {
 
 private val DOWNLOAD_SORTS = listOf("Download Order", "Artist", "Release Date")
 
+/** Download order and release date list newest first and an artist's albums oldest first, unless reversed. */
+private fun newestFirst(sort: Int, reversed: Boolean) = (sort != 1) != reversed
+
 /** Downloaded songs gathered back into their albums. */
 private class DownloadedAlbum(val album: Album, val records: List<DownloadRecord>, val released: String?) {
     val added = records.maxOf { it.added }
@@ -479,11 +488,16 @@ fun DownloadsScreen() {
     val progress by g.downloads.progress.collectAsState()
     val usage by g.cache.usage.collectAsState()
     val sort by g.settings.downloadSort.flow.collectAsState()
-    // Release days come from the album list (served from the HTTP cache when the server's away).
+    val reversed by g.settings.downloadReversed.flow.collectAsState()
+    val newest = newestFirst(sort, reversed)
+    // Release days come from the album list (served from the HTTP cache when the server's away)…
     val albumInfo = rememberLoader("albums:$section") { g.plex.albums().associateBy { it.ratingKey } }
     val info = albumInfo.value.orEmpty()
+    // …checked against MusicBrainz, which knows when an album first came out (Plex has some wrong).
+    val downloadedMbids = remember(records, info) { records.values.mapNotNull { r -> r.track.albumKey?.let { info[it]?.mbid } }.toSet() }
+    val mb by produceState(emptyMap<String, String>(), downloadedMbids) { value = g.releaseDates.resolve(downloadedMbids) }
 
-    val albums = remember(records, info, sort) {
+    val albums = remember(records, info, mb, sort, newest) {
         // Songs that only came with a playlist live under that playlist, not their album.
         val grouped = records.values.filter { it.direct }.groupBy { r -> r.track.albumKey ?: "name:${r.track.artist}|${r.track.album}" }.map { (key, rs) ->
             val t = rs.first().track
@@ -491,19 +505,24 @@ fun DownloadsScreen() {
             val artists = rs.map { it.track.artist }.distinct()
             DownloadedAlbum(
                 known ?: Album(key, t.album.ifEmpty { "Unknown Album" }, if (artists.size > 1) "Various Artists" else t.artist, t.artistKey, t.year, t.thumb),
-                rs, known?.released ?: (known?.year ?: t.year)?.toString(),
+                rs, known?.mbid?.let { mb[it] }?.ifEmpty { null } ?: known?.released ?: (known?.year ?: t.year)?.toString(),
             )
         }
+        val date = compareBy<DownloadedAlbum> { it.released ?: "" }.let { if (newest) it.reversed() else it }
         when (sort) {
-            1 -> grouped.sortedWith(compareBy({ artistSortKey(it.album.artist) }, { it.released ?: "" }, { it.album.title.lowercase() }))
-            2 -> grouped.sortedWith(compareByDescending<DownloadedAlbum> { it.released ?: "" }.thenBy { it.album.title.lowercase() })
-            else -> grouped.sortedByDescending { it.added }
+            1 -> grouped.sortedWith(compareBy<DownloadedAlbum> { artistSortKey(it.album.artist) }.then(date).thenBy { it.album.title.lowercase() })
+            2 -> grouped.sortedWith(date.thenBy { it.album.title.lowercase() })
+            else -> if (newest) grouped.sortedByDescending { it.added } else grouped.sortedBy { it.added }
         }
     }
     val byKey = albums.associateBy { it.album.ratingKey }
-    val playlists = remember(heldPlaylists, sort) {
+    val playlists = remember(heldPlaylists, sort, newest) {
         val all = heldPlaylists.values.toList()
-        if (sort == 0) all.sortedByDescending { it.added } else all.sortedBy { it.playlist.title.lowercase() }
+        when {
+            sort != 0 -> all.sortedBy { it.playlist.title.lowercase() }
+            newest -> all.sortedByDescending { it.added }
+            else -> all.sortedBy { it.added }
+        }
     }
     val allDone = (albums.flatMap { a -> a.tracks } + playlists.flatMap { p -> p.keys.mapNotNull { records[it]?.track } })
         .distinctBy { it.ratingKey }.filter { records[it.ratingKey]?.done == true }
@@ -512,7 +531,12 @@ fun DownloadsScreen() {
     Page("Downloads", trailing = {
         if (!empty) {
             TextButton("Sort", {
-                overlays.actions("Sort By", DOWNLOAD_SORTS.mapIndexed { i, label -> SheetAction(if (i == sort) "✓ $label" else label) { g.settings.downloadSort.value = i } })
+                overlays.actions("Sort By", DOWNLOAD_SORTS.mapIndexed { i, label -> SheetAction(if (i == sort) "✓ $label" else label) { g.settings.downloadSort.value = i } } +
+                    listOf(true, false).map { n ->
+                        SheetAction(if (n == newest) "✓ ${if (n) "Newest First" else "Oldest First"}" else if (n) "Newest First" else "Oldest First") {
+                            g.settings.downloadReversed.value = n != newestFirst(sort, false)
+                        }
+                    })
             })
             IconButton(Sym.ellipsis, {
                 overlays.actions("Downloads", buildList {
@@ -533,41 +557,16 @@ fun DownloadsScreen() {
         item("summary") {
             Column(Modifier.padding(bottom = 14.dp)) {
                 val counts = buildList {
-                    if (playlists.isNotEmpty()) add("${playlists.size} playlist${if (playlists.size == 1) "" else "s"}")
                     if (albums.isNotEmpty()) add("${albums.size} album${if (albums.size == 1) "" else "s"}")
+                    if (playlists.isNotEmpty()) add("${playlists.size} playlist${if (playlists.size == 1) "" else "s"}")
                 }.joinToString(" · ")
                 Txt("$counts · ${songs(records.size)} · ${"%.1f".format(usage.pinnedBytes / 1e9)} GB · by ${DOWNLOAD_SORTS[sort].lowercase()}",
                     Type.subhead, Modifier.padding(start = MARGIN.dp, bottom = 12.dp), color = c.label2)
                 PlayShuffle(onPlay = { g.playback.playTracks(allDone, 0) }, onShuffle = { g.playback.playTracks(allDone, shuffle = true) })
             }
         }
-        if (playlists.isNotEmpty()) {
-            if (albums.isNotEmpty()) item("playlists-title") { SectionTitle("Playlists") }
-            items(playlists.size, key = { "pl:" + playlists[it].playlist.ratingKey }) { i ->
-                val d = playlists[i]
-                val recs = d.keys.mapNotNull { records[it] }
-                val done = recs.count { it.done }
-                val failed = recs.count { it.error != null }
-                PlaylistRow(
-                    d.playlist.copy(trackCount = d.keys.size),
-                    subtitle = when {
-                        failed > 0 -> "${songs(d.keys.size)} · $failed failed"
-                        done < recs.size -> "$done of ${songs(recs.size)}"
-                        else -> null
-                    },
-                    badge = if (done < recs.size) ({
-                        if (failed > 0) Icon(Sym.warning, c.label2, size = 18.dp)
-                        else ProgressRing(((done + recs.sumOf { (progress[it.track.ratingKey] ?: 0f).toDouble() }) / recs.size).toFloat(), size = 20.dp, color = c.label2)
-                    }) else null,
-                    onLongClick = {
-                        menu.playlist(d.playlist, extra = buildList {
-                            if (failed > 0) add(SheetAction("Retry Failed Songs") { g.downloads.retryFailed() })
-                        })
-                    },
-                ) { nav.push(Route.PlaylistPage(d.playlist)) }
-            }
-            if (albums.isNotEmpty()) item("albums-title") { SectionTitle("Albums") }
-        }
+        // Albums first, downloaded playlists below them.
+        if (albums.isNotEmpty() && playlists.isNotEmpty()) item("albums-title") { SectionTitle("Albums") }
         albumGrid(
             "downloads", albums.map { it.album },
             onClick = { a ->
@@ -602,5 +601,31 @@ fun DownloadsScreen() {
                 }
             },
         )
+        if (playlists.isNotEmpty()) {
+            if (albums.isNotEmpty()) item("playlists-title") { SectionTitle("Playlists") }
+            items(playlists.size, key = { "pl:" + playlists[it].playlist.ratingKey }) { i ->
+                val d = playlists[i]
+                val recs = d.keys.mapNotNull { records[it] }
+                val done = recs.count { it.done }
+                val failed = recs.count { it.error != null }
+                PlaylistRow(
+                    d.playlist.copy(trackCount = d.keys.size),
+                    subtitle = when {
+                        failed > 0 -> "${songs(d.keys.size)} · $failed failed"
+                        done < recs.size -> "$done of ${songs(recs.size)}"
+                        else -> null
+                    },
+                    badge = if (done < recs.size) ({
+                        if (failed > 0) Icon(Sym.warning, c.label2, size = 18.dp)
+                        else ProgressRing(((done + recs.sumOf { (progress[it.track.ratingKey] ?: 0f).toDouble() }) / recs.size).toFloat(), size = 20.dp, color = c.label2)
+                    }) else null,
+                    onLongClick = {
+                        menu.playlist(d.playlist, extra = buildList {
+                            if (failed > 0) add(SheetAction("Retry Failed Songs") { g.downloads.retryFailed() })
+                        })
+                    },
+                ) { nav.push(Route.PlaylistPage(d.playlist)) }
+            }
+        }
     }
 }

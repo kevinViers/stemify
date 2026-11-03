@@ -90,6 +90,10 @@ class MobilePlayer(Player):
         super()._load(i, play, start)
         self.queueChanged.emit()
 
+    def _on_advanced(self):
+        super()._on_advanced()
+        self.queueChanged.emit()
+
     @Slot("QVariantList", int, bool)
     def playTracks(self, tracks, start=0, shuffle=False):
         if shuffle and start <= 0 and tracks:

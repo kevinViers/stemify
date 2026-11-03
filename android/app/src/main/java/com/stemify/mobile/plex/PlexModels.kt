@@ -53,7 +53,12 @@ data class PlexItem(
     val smart: JsonPrimitive? = null,
     @SerialName("Media") val media: List<PlexMedia> = emptyList(),
     @SerialName("Genre") val genres: List<PlexTag> = emptyList(),
+    /** "mbid://…" and the like; album listings carry them only with includeGuids=1. */
+    @SerialName("Guid") val guids: List<PlexGuid> = emptyList(),
 )
+
+@Serializable
+data class PlexGuid(val id: String = "")
 
 @Serializable
 data class PlexMedia(
@@ -171,8 +176,10 @@ data class Album(
     val thumb: String? = null,
     val trackCount: Int? = null,
     val genre: String? = null,
-    /** "1975-11-14" when Plex knows the release day. */
+    /** "1975-11-14" from Plex. Not always right: see ReleaseDates. */
     val released: String? = null,
+    /** The MusicBrainz release the files are tagged with. */
+    val mbid: String? = null,
 )
 
 @Serializable
@@ -233,6 +240,7 @@ fun PlexItem.toAlbum() = Album(
     trackCount = leafCount,
     genre = genres.firstOrNull()?.tag,
     released = originallyAvailableAt?.takeIf { it.length >= 10 },
+    mbid = guids.firstOrNull { it.id.startsWith("mbid://") }?.id?.removePrefix("mbid://"),
 )
 
 fun PlexItem.toArtist() = Artist(ratingKey, title, titleSort ?: title, thumb)

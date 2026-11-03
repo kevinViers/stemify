@@ -5,9 +5,14 @@ Nothing is decoded whole, so a song starts as soon as its first chunk is read (s
 the network share) and memory stays flat. The callback never takes a lock: chunks travel
 through a deque tagged with a generation number, and a seek or a new song bumps the
 generation so stale chunks are dropped on the floor.
+
+Each song is a Voice with its own queue. The next song can be queued ahead (set_next) and is
+decoded in advance; the callback switches to it at the exact frame, gaplessly, or crossfaded:
+the ending song then plays on as the fading tail beside it until its plan says stop.
 """
 
 import collections
+import itertools
 import json
 import subprocess
 import threading
@@ -104,12 +109,14 @@ def open_reader(path, sr=None):
 class Source:
     """One song: one reader per stem (or a single reader for the original file)."""
 
-    def __init__(self, names, paths):
+    def __init__(self, names, paths, sr=None):
+        """sr forces a rate (resampled through ffmpeg), so a song can join a stream at another rate."""
         self.names = list(names)
+        self.paths = list(paths)
         self.readers = []
         try:
             for p in paths:
-                self.readers.append(open_reader(p))
+                self.readers.append(open_reader(p, sr))
             sr = self.readers[0].sr
             # Stems always share a rate; if one didn't, resample it through ffmpeg.
             for i, (r, p) in enumerate(zip(self.readers, paths)):
@@ -121,6 +128,13 @@ class Source:
             raise
         self.sr = sr
         self.frames = min(r.frames for r in self.readers)
+
+    def reopen(self, sr=None):
+        """A fresh Source of the same files (optionally at another rate); this one is untouched."""
+        src = Source(self.names, self.paths, sr)
+        if hasattr(self, "fmt"):
+            src.fmt = self.fmt
+        return src
 
     def read(self, n):
         """(stems, frames, 2) float32; fewer frames near the end, none at EOF."""
@@ -141,26 +155,69 @@ class Source:
         self.readers = []
 
 
+
+
+class Voice:
+    """One song on its way to the speaker: its source, the blocks decoded ahead of the playhead
+    (decoder thread), and where the callback is in them (audio thread)."""
+    _serials = itertools.count(1)
+
+    def __init__(self, src: Source, start=0):
+        self.src = src
+        self.serial = next(Voice._serials)
+        self.frames = src.frames
+        k = len(src.names)
+        self.gains = np.ones(k, np.float32)
+        self.gains_cur = self.gains.copy()
+        self.queue = collections.deque()
+        self.gen = 0
+        self.restart(start)
+        # audio thread
+        self.cb_gen = -1
+        self.cur = None
+        self.cur_off = 0
+        self.pos = self.gen_start
+        self.ended = False
+        # crossfade: as the tail, it fades from fade_from to silence at fade_to and stops at end;
+        # as the incoming song, it fades in over fade_in frames.
+        self.fade_from = self.fade_to = self.end = 0
+        self.fade_in = 0
+        self.fade_in_done = 0
+
+    def restart(self, frame):
+        """Starts decoding afresh from frame (engine lock held)."""
+        frame = max(0, min(int(frame), max(0, self.frames - 1)))
+        self.gen += 1
+        self.gen_start = frame
+        self.queue.clear()
+        self.produced = self.consumed = 0
+        self.eof = False
+        self.ended = False
+        self.seek_to = frame
+
+    def buffered(self):
+        return bool(self.queue) or self.eof
+
+
 class PlayerEngine(QObject):
     playingChanged = Signal()
     bufferingChanged = Signal()
     volumeChanged = Signal()
     durationChanged = Signal()
     ended = Signal()
+    # The queued next song is now what's heard (a gapless or crossfaded switch).
+    advanced = Signal()
     failed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._src: Source | None = None
+        self._main: Voice | None = None   # the song being mixed at full
+        self._next: Voice | None = None   # queued, decoded ahead
+        self._plan = None                 # how to cross into _next (frames), None for gapless
+        self._tail: Voice | None = None   # the song that's ending, fading under _main
+        self._shown: Voice | None = None  # the song the UI is on (lags a switch until it's heard)
         self._sr = 44100
-        self._frames = 0
-        self._gen = 0
-        self._gen_start = 0  # frame the current generation starts at
-        self._queue = collections.deque()
-        self._produced = 0
-        self._consumed = 0
-        self._eof = False
-        self._seek_to = None
+        self._retired = collections.deque()  # sources the callback is done with; closed by the decoder
         self._to_close = []
         self._cond = threading.Condition()
         self._alive = True
@@ -168,20 +225,16 @@ class PlayerEngine(QObject):
         self._buffering = False
         self._ended_flag = False
         self._stream: sd.OutputStream | None = None
-        self._gains = np.ones(0, np.float32)
-        self._gains_cur = np.ones(0, np.float32)
         self._volume = 0.8
         self._master = self._volume ** 3
         self._master_cur = self._master
         # callback-owned
-        self._cb_gen = -1
-        self._cur = None
-        self._cur_off = 0
-        self._pos = 0
         self._underrun = False
         self._mix = np.zeros((BLOCK * 8, 2), np.float32)
+        self._tbuf = np.zeros((BLOCK * 8, 2), np.float32)
         self._ramp = np.zeros(0, np.float32)
-        self._ring = np.zeros((RING, 4 + MAX_STEMS), np.float64)
+        # per block: DAC time, main position, peak L/R, main serial, tail serial, tail position, stem levels
+        self._ring = np.zeros((RING, 7 + MAX_STEMS), np.float64)
         self._eq = None  # object with process(buf, sr), swapped in whole from the GUI thread
         self._lim = 1.0
         self._ring_i = 0
@@ -199,21 +252,38 @@ class PlayerEngine(QObject):
         self._tick.start()
 
     # ---- decoder thread --------------------------------------------------------------
+    def _pick(self):
+        """The voice that most needs decoding: one being sought, else the least buffered."""
+        best, best_ahead = None, AHEAD
+        for v in (self._main, self._tail, self._next):
+            if v is None:
+                continue
+            if v.seek_to is not None:
+                return v
+            if v.eof:
+                continue
+            ahead = (v.produced - v.consumed) / v.src.sr
+            if ahead < best_ahead:
+                best, best_ahead = v, ahead
+        return best
+
     def _decode_loop(self):
         while True:
             with self._cond:
-                while self._alive and not self._to_close and self._seek_to is None and (
-                        self._src is None or self._eof
-                        or self._produced - self._consumed >= AHEAD * self._sr):
+                while self._alive and not self._to_close and not self._retired and self._pick() is None:
                     self._cond.wait(0.25)
                 if not self._alive:
                     return
                 closing, self._to_close = self._to_close, []
-                src, gen, seek = self._src, self._gen, self._seek_to
-                self._seek_to = None
+                while self._retired:
+                    closing.append(self._retired.popleft())
+                v = self._pick()
+                if v is not None:
+                    src, gen, seek = v.src, v.gen, v.seek_to
+                    v.seek_to = None
             for s in closing:
                 s.close()
-            if src is None:
+            if v is None:
                 continue
             try:
                 if seek is not None:
@@ -223,61 +293,95 @@ class PlayerEngine(QObject):
                 print("decode error:", e, flush=True)
                 block = np.zeros((len(src.names), 0, 2), np.float32)
             with self._cond:
-                if gen != self._gen:
+                if gen != v.gen:
                     continue
                 if block.shape[1] == 0:
-                    self._eof = True
-                    self._queue.append((gen, None))
+                    v.eof = True
+                    v.queue.append((gen, None))
                 else:
-                    self._queue.append((gen, block))
-                    self._produced += block.shape[1]
+                    v.queue.append((gen, block))
+                    v.produced += block.shape[1]
 
     # ---- GUI thread API -----------------------------------------------------------------
+    @property
+    def rate(self):
+        """The output's sample rate: a song queued with set_next must be at it."""
+        return self._sr
+
     def set_source(self, src: Source, start_seconds=0.0, play=True):
         """Replaces the playing song. Takes ownership of [src]."""
         if self._stream is not None and self._stream.samplerate != src.sr:
             self._close_stream()
         with self._cond:
-            if self._src is not None:
-                self._to_close.append(self._src)
-            self._src = src
+            self._drop_locked()
             self._sr = src.sr
-            self._frames = src.frames
-            k = len(src.names)
-            if len(self._gains) != k:
-                self._gains = np.ones(k, np.float32)
-                self._gains_cur = self._gains.copy()
-            self._restart_locked(int(start_seconds * src.sr))
+            self._main = self._shown = Voice(src, int(start_seconds * src.sr))
+            self._ring[:] = 0
+            self._cond.notify()
         self._ended_flag = False
         self.durationChanged.emit()
         if play:
             self.play()
 
+    def set_next(self, src: Source | None, plan=None, gains=None):
+        """Queues the song to follow, decoded ahead so the switch is gapless; with a plan
+        (crossfade.Plan, in seconds) it's crossfaded instead. Takes ownership of [src], which must be
+        at the output's rate. Returns False (and closes it) when it can't follow."""
+        with self._cond:
+            if self._next is not None:
+                self._to_close.append(self._next.src)
+                self._next, self._plan = None, None
+            if src is None:
+                return True
+            if self._main is None or src.sr != self._sr:
+                self._to_close.append(src)
+                self._cond.notify()
+                return False
+            sr = self._sr
+            v = Voice(src, int(plan.in_offset * sr) if plan else 0)
+            if gains is not None and len(gains) == len(v.gains):
+                v.gains = np.asarray(gains, np.float32)
+                v.gains_cur = v.gains.copy()
+            if plan is not None:
+                v.fade_in = int(plan.in_fade * sr)
+                self._plan = {k: int(getattr(plan, k) * sr) for k in ("start", "fade_from", "fade_to", "end")}
+            self._next = v
+            self._cond.notify()
+        return True
+
     def clear(self):
         self.pause()
         with self._cond:
-            if self._src is not None:
-                self._to_close.append(self._src)
-            self._src = None
-            self._frames = 0
-            self._restart_locked(0)
+            self._drop_locked()
+            self._ring[:] = 0
             self._cond.notify()
         self.durationChanged.emit()
 
-    def _restart_locked(self, frame):
-        frame = max(0, min(frame, max(0, self._frames - 1)))
-        self._gen += 1
-        self._gen_start = frame
-        self._queue.clear()
-        self._produced = self._consumed = 0
-        self._eof = False
-        self._seek_to = frame
-        self._ring[:] = 0
-        self._cond.notify()
+    def _drop_locked(self):
+        for v in (self._main, self._next, self._tail):
+            if v is not None:
+                self._to_close.append(v.src)
+        self._main = self._next = self._tail = self._shown = None
+        self._plan = None
+
+    def _end_crossfade_locked(self):
+        """Drops the fading tail and puts the UI on the playing song (a pause or seek mid-crossfade)."""
+        if self._tail is not None:
+            self._to_close.append(self._tail.src)
+            self._tail = None
+        if self._main is not None and self._main.fade_in:
+            self._main.fade_in_done = self._main.fade_in
+        if self._shown is not self._main:
+            self._shown = self._main
+            QTimer.singleShot(0, self._announce)
+
+    def _announce(self):
+        self.durationChanged.emit()
+        self.advanced.emit()
 
     @Slot()
     def play(self):
-        if self._src is None or self._playing:
+        if self._main is None or self._playing:
             return
         if self._stream is None:
             self._stream = sd.OutputStream(samplerate=self._sr, channels=2, dtype="float32", blocksize=BLOCK,
@@ -291,12 +395,17 @@ class PlayerEngine(QObject):
     def pause(self):
         if not self._playing:
             return
-        heard = self._heard_frame()
+        v = self._main
+        heard = self._heard(v) if v is not None else 0
         self._playing = False
         if self._stream is not None:
             self._stream.abort()  # instant; what was queued but unheard is decoded again below
         with self._cond:
-            self._restart_locked(int(heard))
+            self._end_crossfade_locked()
+            if v is not None:
+                v.restart(heard)
+            self._ring[:] = 0
+            self._cond.notify()
         self.playingChanged.emit()
 
     @Slot()
@@ -306,7 +415,12 @@ class PlayerEngine(QObject):
     @Slot(float)
     def seek(self, seconds):
         with self._cond:
-            self._restart_locked(int(seconds * self._sr))
+            self._end_crossfade_locked()
+            if self._main is not None:
+                self._main.restart(int(seconds * self._sr))
+                self._main.ended = False
+            self._ring[:] = 0
+            self._cond.notify()
         self._ended_flag = False
 
     def set_eq(self, eq):
@@ -314,9 +428,11 @@ class PlayerEngine(QObject):
         self._eq = eq
 
     def set_gains(self, gains):
+        """Stem gains for the song the UI is on (the playing one; a tail keeps what it had)."""
+        v = self._shown
         g = np.asarray(gains, np.float32)
-        if len(g) == len(self._gains):
-            self._gains = g
+        if v is not None and len(g) == len(v.gains):
+            v.gains = g
 
     @Slot(float)
     def setVolume(self, v):
@@ -330,9 +446,14 @@ class PlayerEngine(QObject):
         self._close_stream()
         with self._cond:
             self._alive = False
-            if self._src is not None:
-                self._src.close()
             self._cond.notify()
+        # The decoder may be mid-read: close nothing until it's stopped.
+        self._thread.join(timeout=5)
+        for v in (self._main, self._next, self._tail):
+            if v is not None:
+                v.src.close()
+        for s in self._to_close + list(self._retired):
+            s.close()
 
     def _close_stream(self):
         if self._stream is not None:
@@ -347,8 +468,13 @@ class PlayerEngine(QObject):
                 self.playingChanged.emit()
 
     def _poll(self):
+        main = self._main
+        # A switch to the next song is announced once it's what's coming out of the speaker.
+        if main is not None and self._shown is not main and self._played_rows(main).shape[0]:
+            self._shown = main
+            self._announce()
         # Wait for the device to play out what's queued, or the song's last moment is cut.
-        if self._ended_flag and self._playing and self._heard_frame() >= self._pos - BLOCK:
+        if self._ended_flag and self._playing and main is not None and self._heard(main) >= main.pos - BLOCK:
             self._ended_flag = False
             self._playing = False
             if self._stream is not None:
@@ -356,61 +482,151 @@ class PlayerEngine(QObject):
             self.playingChanged.emit()
             self.ended.emit()
             return
-        b = self._playing and self._underrun and not self._eof
+        b = self._playing and self._underrun and not (main is not None and main.eof)
         if b != self._buffering:
             self._buffering = b
             self.bufferingChanged.emit()
 
     # ---- audio thread -----------------------------------------------------------------
-    def _callback(self, outdata, frames, time_info, status):
-        gen = self._gen
-        if gen != self._cb_gen:
-            self._cb_gen = gen
-            self._cur = None
-            self._pos = self._gen_start
-            self._tap.fill(0)
-        mix = self._mix[:frames]
-        mix.fill(0)
-        start_pos = self._pos
-        filled = 0
-        g1 = self._gains
-        g0 = self._gains_cur if len(self._gains_cur) == len(g1) else g1
+    def _pull(self, v: Voice, out, off, count, live):
+        """Mixes up to count frames of v into out[off:], with its stem gains (ramped when they
+        changed). Returns the frames mixed; sets v.ended at its end of file."""
+        if v.gen != v.cb_gen:
+            v.cb_gen = v.gen
+            v.cur = None
+            v.pos = v.gen_start
+            v.ended = False
+        g1 = v.gains
+        g0 = v.gains_cur if len(v.gains_cur) == len(g1) else g1
         ramping = not np.array_equal(g0, g1)
-        if ramping and len(self._ramp) != frames:
-            self._ramp = np.linspace(0.0, 1.0, frames, dtype=np.float32)
-        q = self._queue
-        lv = np.zeros(len(g1), np.float32)
-        while self._playing and filled < frames:
-            if self._cur is None:
+        if ramping and len(self._ramp) != count:
+            self._ramp = np.linspace(0.0, 1.0, count, dtype=np.float32)
+        filled, q, gen = 0, v.queue, v.gen
+        lv = self._lv if live else None
+        while filled < count:
+            if v.cur is None:
                 if not q:
                     break
                 item_gen, block = q.popleft()
                 if item_gen != gen:
                     continue
                 if block is None:
-                    self._ended_flag = True
+                    v.ended = True
                     break
-                self._cur, self._cur_off = block, 0
-            cur, off = self._cur, self._cur_off
-            take = min(frames - filled, cur.shape[1] - off)
-            seg = cur[:, off:off + take]
+                v.cur, v.cur_off = block, 0
+            cur, o = v.cur, v.cur_off
+            take = min(count - filled, cur.shape[1] - o)
+            seg = cur[:, o:o + take]
+            dst = out[off + filled:off + filled + take]
             if ramping:
                 r = self._ramp[filled:filled + take]
                 w = g0[:, None] + (g1 - g0)[:, None] * r[None, :]
-                mix[filled:filled + take] += np.einsum("kt,ktc->tc", w, seg)
+                dst += np.einsum("kt,ktc->tc", w, seg)
             else:
-                mix[filled:filled + take] += np.tensordot(g1, seg, axes=(0, 0))
-            if take:
-                np.maximum(lv, np.abs(seg).max(axis=(1, 2)) * np.abs(g1), out=lv)
-                self._write_tap(seg, w if ramping else g1[:, None], start_pos + filled)
+                dst += np.tensordot(g1, seg, axes=(0, 0))
+            if live and take:
+                if len(lv) == len(g1):
+                    np.maximum(lv, np.abs(seg).max(axis=(1, 2)) * np.abs(g1), out=lv)
+                self._write_tap(seg, w if ramping else g1[:, None], v.pos + filled)
             filled += take
-            self._cur_off = off + take
-            if self._cur_off >= cur.shape[1]:
-                self._cur = None
-        self._gains_cur = g1
+            v.cur_off = o + take
+            if v.cur_off >= cur.shape[1]:
+                v.cur = None
+        v.gains_cur = g1
+        v.pos += filled
+        v.consumed += filled
+        return filled
+
+    def _cross(self, main, nxt, plan):
+        """main becomes the fading tail, nxt the playing song."""
+        late = main.pos - plan["start"]
+        main.fade_from, main.fade_to, main.end = plan["fade_from"], plan["fade_to"], plan["end"]
+        # Started late (a seek into the overlap): fade over what's left.
+        if late > self._sr // 10 and main.fade_to > main.fade_from:
+            main.fade_from = max(main.fade_from, main.pos)
+            main.fade_to = min(main.end, max(main.fade_to, main.fade_from + self._sr // 2))
+        self._tail = main
+        self._main, self._next, self._plan = nxt, None, None
+        self._tap.fill(0)
+
+    def _cut(self, main, nxt):
+        """nxt follows main straight on (gapless)."""
+        self._retired.append(main.src)
+        self._main, self._next, self._plan = nxt, None, None
+        nxt.fade_in = 0
+        self._ended_flag = False
+        self._tap.fill(0)
+
+    def _callback(self, outdata, frames, time_info, status):
+        mix = self._mix[:frames]
+        mix.fill(0)
+        main0 = self._main
+        start_pos = main0.pos if main0 is not None and main0.cb_gen == main0.gen else (main0.gen_start if main0 else 0)
+        if main0 is not None and len(getattr(self, "_lv", ())) != len(main0.gains):
+            self._lv = np.zeros(len(main0.gains), np.float32)
+        lv = getattr(self, "_lv", np.zeros(0, np.float32))
+        lv.fill(0)
+        switched = None  # where in this block the next song came in
+        fade_from_off = 0
+        off = 0
+        while self._playing and off < frames:
+            main = self._main
+            if main is None:
+                break
+            nxt, plan = self._next, self._plan
+            if main.ended:
+                # At its end: straight on into the next song if it's ready.
+                if nxt is not None and nxt.buffered():
+                    self._cut(main, nxt)
+                    switched = off if switched is None else switched
+                    continue
+                self._ended_flag = nxt is None
+                break
+            limit = frames - off
+            if nxt is not None and plan is not None and self._tail is None and main.gen == main.cb_gen:
+                until = plan["start"] - main.pos
+                if until <= 0 and nxt.buffered():
+                    if plan["start"] >= plan["end"] or main.pos >= plan["end"]:
+                        self._cut(main, nxt)  # no overlap: cut over at the last sound
+                    else:
+                        self._cross(main, nxt, plan)
+                    switched = off if switched is None else switched
+                    fade_from_off = off
+                    continue
+                if until > 0:
+                    limit = min(limit, until)
+            n = self._pull(main, mix, off, limit, live=True)
+            if main.fade_in > main.fade_in_done and n:
+                k = np.arange(main.fade_in_done, main.fade_in_done + n, dtype=np.float64) / main.fade_in
+                mix[off:off + n] *= np.sin(np.clip(k, 0, 1) * (np.pi / 2)).astype(np.float32)[:, None]
+                main.fade_in_done += n
+            off += n
+            if n < limit and not main.ended:
+                break  # underrun
+        filled = off
+        tail = self._tail
+        tail_pos = tail.pos if tail is not None else 0
+        if tail is not None and self._playing:
+            begin = fade_from_off if switched is not None else 0
+            count = min(frames - begin, max(0, tail.end - tail.pos))
+            tb = self._tbuf[:frames]
+            tb[begin:begin + count] = 0
+            p0 = tail.pos
+            n = self._pull(tail, tb, begin, count, live=False) if count > 0 else 0
+            if n:
+                span = tail.fade_to - tail.fade_from
+                if span > 0:
+                    x = (np.arange(p0, p0 + n, dtype=np.float64) - tail.fade_from) / span
+                    g = np.cos(np.clip(x, 0, 1) * (np.pi / 2)).astype(np.float32)
+                    mix[begin:begin + n] += tb[begin:begin + n] * g[:, None]
+                else:
+                    mix[begin:begin + n] += tb[begin:begin + n]
+                filled = max(filled, begin + n)
+            if tail.pos >= tail.end or tail.ended or (n < count and tail.eof and not tail.queue):
+                self._retired.append(tail.src)
+                self._tail = None
+        main = self._main
         self._underrun = filled < frames and not self._ended_flag
-        self._pos = start_pos + filled
-        self._consumed += filled
         eq = self._eq
         if eq is not None and filled:
             eq.process(mix, self._sr)
@@ -422,7 +638,7 @@ class PlayerEngine(QObject):
             mix *= m1
         self._limit(mix, frames)
         outdata[:] = mix
-        if filled and len(q) < 3:
+        if len(self._retired) or (main is not None and len(main.queue) < 3) or (tail is not None and len(tail.queue) < 3):
             with self._cond:
                 self._cond.notify()
         peak = np.abs(mix).max(axis=0)
@@ -430,17 +646,29 @@ class PlayerEngine(QObject):
         if dac <= 0:
             dac = self._stream.time + self._stream.latency
         r = self._ring[self._ring_i % RING]
-        r[0], r[1], r[2], r[3] = dac, start_pos, peak[0], peak[1]
+        r[0], r[2], r[3] = dac, peak[0], peak[1]
+        if main is not None:
+            # The new song's frame at the block's start, as if it had begun earlier, so positions run on.
+            r[1] = (main.gen_start - switched) if switched is not None and main is not main0 else start_pos
+            r[4] = main.serial
+        else:
+            r[1] = r[4] = 0
+        if switched is not None and main0 is not None and main0 is not main:
+            r[5], r[6] = main0.serial, start_pos   # the song that was playing, until it's heard leaving
+        elif tail is not None:
+            r[5], r[6] = tail.serial, tail_pos
+        else:
+            r[5] = r[6] = 0
         n = min(len(lv), MAX_STEMS)
-        r[4:4 + n] = lv[:n]
-        r[4 + n:] = 0
+        r[7:7 + n] = lv[:n]
+        r[7 + n:] = 0
         self._ring_i += 1
 
     def _write_tap(self, seg, w, frame):
         """Post-fader mono of each stem into the spectrum tap, indexed by song frame."""
         k = min(seg.shape[0], MAX_STEMS)
         mono = (seg[:k, :, 0] + seg[:k, :, 1]) * (0.5 * w[:k])
-        i = frame % TAP
+        i = int(frame) % TAP
         n = min(mono.shape[1], TAP - i)
         self._tap[:k, i:i + n] = mono[:, :n]
         if n < mono.shape[1]:
@@ -466,51 +694,55 @@ class PlayerEngine(QObject):
         np.clip(mix, -CEILING, CEILING, out=mix)
         self._lim = g1
 
-    def _heard_frame(self):
-        """Interpolates the frame at the DAC from the per-block timestamps."""
-        if self._stream is None or not self._playing:
-            return float(self._gen_start if self._cb_gen != self._gen else self._pos)
-        if self._cb_gen != self._gen:
-            return float(self._gen_start)
+    def _played_rows(self, v):
+        """Ring rows already at the DAC that place v: (dac time, v's frame then)."""
+        if self._stream is None:
+            return np.zeros((0, 2))
         now = self._stream.time
         ring = self._ring
-        played = ring[(ring[:, 0] > 0) & (ring[:, 0] <= now)]
-        if not len(played):
-            return float(self._gen_start)
-        last = played[np.argmax(played[:, 0])]
-        return float(min(self._frames, last[1] + (now - last[0]) * self._sr))
+        done = (ring[:, 0] > 0) & (ring[:, 0] <= now)
+        as_main = ring[done & (ring[:, 4] == v.serial)][:, [0, 1]]
+        as_tail = ring[done & (ring[:, 5] == v.serial)][:, [0, 6]]
+        return np.concatenate([as_main, as_tail]) if len(as_tail) else as_main
+
+    def _heard(self, v):
+        """Interpolates v's frame at the DAC from the per-block timestamps."""
+        if self._stream is None or not self._playing or v.cb_gen != v.gen:
+            return float(v.gen_start if v.cb_gen != v.gen else v.pos)
+        rows = self._played_rows(v)
+        if not len(rows):
+            return float(v.gen_start)
+        last = rows[np.argmax(rows[:, 0])]
+        return float(max(0.0, min(v.frames, last[1] + (self._stream.time - last[0]) * self._sr)))
 
     # ---- UI reads ----------------------------------------------------------------------
+    def _last_played(self):
+        if not self._playing or self._stream is None:
+            return None
+        ring = self._ring
+        played = ring[(ring[:, 0] > 0) & (ring[:, 0] <= self._stream.time)]
+        return played[np.argmax(played[:, 0])] if len(played) else None
+
     @Slot(result="QVariantList")
     def snapshot(self):
         """[position seconds, peakL, peakR] for this frame."""
-        pos = self._heard_frame() / self._sr if self._src is not None else 0.0
-        if not self._playing or self._stream is None:
-            return [pos, 0.0, 0.0]
-        ring = self._ring
-        played = ring[(ring[:, 0] > 0) & (ring[:, 0] <= self._stream.time)]
-        if not len(played):
-            return [pos, 0.0, 0.0]
-        last = played[np.argmax(played[:, 0])]
-        return [pos, float(last[2]), float(last[3])]
+        pos = self.position()
+        last = self._last_played()
+        return [pos, 0.0, 0.0] if last is None else [pos, float(last[2]), float(last[3])]
 
     @Slot(result="QVariantList")
     def levels(self):
         """Per-stem peak levels (after faders) of the block at the DAC now."""
-        if not self._playing or self._stream is None:
-            return []
-        ring = self._ring
-        played = ring[(ring[:, 0] > 0) & (ring[:, 0] <= self._stream.time)]
-        if not len(played):
-            return []
-        return [float(v) for v in played[np.argmax(played[:, 0])][4:]]
+        last = self._last_played()
+        return [] if last is None else [float(v) for v in last[7:]]
 
     @Slot(result="QVariantList")
     def spectrum(self):
         """Per-stem spectra of what's at the DAC now: BANDS values (0..1, log-spaced F_LO..F_HI)
         per stem, stem after stem. Peaks hold and fall back over FALL_S; all zeros once settled."""
         now = time.monotonic()
-        k = min(len(self._gains), MAX_STEMS) if self._src is not None else 0
+        main = self._main
+        k = min(len(main.gains), MAX_STEMS) if main is not None else 0
         if self._spec.shape[0] != k:
             self._spec = np.zeros((k, BANDS), np.float32)
         spec = self._spec
@@ -519,7 +751,7 @@ class PlayerEngine(QObject):
         if k and self._playing and self._stream is not None:
             if self._bands_sr != self._sr:
                 self._make_bands(self._sr)
-            h = int(self._heard_frame())
+            h = int(self._heard(main))
             x = self._tap[:k, (np.arange(h - FFT, h)) % TAP] * self._win
             mag = np.abs(np.fft.rfft(x, NFFT, axis=1))[:, self._b0:self._b1]
             band = np.maximum.reduceat(mag, self._starts, axis=1)
@@ -540,7 +772,8 @@ class PlayerEngine(QObject):
         self._bands_sr = sr
 
     def position(self):
-        return self._heard_frame() / self._sr if self._src is not None else 0.0
+        v = self._shown
+        return self._heard(v) / self._sr if v is not None else 0.0
 
     def _get_playing(self):
         return self._playing
@@ -549,7 +782,8 @@ class PlayerEngine(QObject):
         return self._buffering
 
     def _get_duration(self):
-        return self._frames / self._sr if self._src is not None else 0.0
+        v = self._shown
+        return v.frames / self._sr if v is not None else 0.0
 
     def _get_volume(self):
         return self._volume

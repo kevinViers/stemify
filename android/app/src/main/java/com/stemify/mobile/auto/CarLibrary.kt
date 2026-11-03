@@ -26,6 +26,7 @@ class Resolved(val tracks: List<Track>, val start: Int = 0, val shuffle: Boolean
  *
  * Away from home (Plex and stemserve unreachable) everything comes from the HTTP cache and
  * only songs that will actually play offline are listed, with Downloads as the first tab.
+ * Downloads lists downloaded playlists, then downloaded albums, as the phone keeps them.
  */
 @OptIn(UnstableApi::class)
 class CarLibrary(private val g: Graph) {
@@ -56,7 +57,7 @@ class CarLibrary(private val g: Graph) {
     suspend fun children(id: String): List<MediaItem>? = withContext(Dispatchers.IO) {
         val away = away()
         when (id) {
-            CarIds.DOWNLOADS -> songs(CarIds.DOWNLOADS, tracksOf(CarIds.DOWNLOADS), shuffleRow = true, showArtist = true)
+            CarIds.DOWNLOADS -> downloadsTab()
             CarIds.PLAYLISTS -> playlists(away)
             CarIds.ALBUMS -> albumsTab(away)
             CarIds.ARTISTS -> artistsTab(away)
@@ -65,6 +66,8 @@ class CarLibrary(private val g: Graph) {
                 when (kind) {
                     "playlist" -> songs(id, tracksOf(id), shuffleRow = true, showArtist = true)
                     "album" -> songs(id, tracksOf(id), shuffleRow = false, showArtist = false)
+                    "dlplaylist" -> songs(id, tracksOf(id), shuffleRow = true, showArtist = true)
+                    "dlalbum" -> songs(id, tracksOf(id), shuffleRow = false, showArtist = false)
                     "artist" -> artistPage(key, away)
                     "albums" -> albumsFor(away).filter { CarTree.letterOf(it.title) == key }.map(::albumItem)
                     "artists" -> artistsFor(away).filter { CarTree.letterOf(it.sortTitle) == key }.map(::artistItem)
@@ -74,6 +77,37 @@ class CarLibrary(private val g: Graph) {
             }
         }
     }
+
+    /** Shuffle all, then downloaded playlists A–Z, then downloaded albums A–Z. */
+    private suspend fun downloadsTab(): List<MediaItem> {
+        val shuffle = if (tracksOf(CarIds.DOWNLOADS).size > 1) listOf(shuffleItem(CarIds.DOWNLOADS, "Shuffle all")) else emptyList()
+        val playlists = g.downloads.playlists.value.values
+            .map { it.playlist to g.downloads.playlistTracks(it.playlist.ratingKey).size }
+            .filter { (_, n) -> n > 0 }
+            .sortedBy { (p, _) -> p.title.lowercase() }
+            .map { (p, n) ->
+                folder(CarIds.downloadedPlaylist(p.ratingKey), p.title, CarTree.countLabel(n, "song", "songs"), MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                    art = artOr(p.thumb, p.title), group = "Playlists")
+            }
+        val albums = downloadedAlbums().entries
+            .sortedWith(compareBy({ CarTree.norm(it.value.first().album) }, { CarTree.norm(it.value.first().artist) }))
+            .map { (key, tracks) ->
+                val t = tracks.first()
+                val artist = tracks.map { it.artist }.distinct().singleOrNull() ?: "Various Artists"
+                folder(CarIds.downloadedAlbum(key), t.album.ifEmpty { "Unknown Album" }, artist, MediaMetadata.MEDIA_TYPE_ALBUM,
+                    art = artOr(t.thumb, t.album), group = "Albums")
+            }
+        return shuffle + playlists + albums
+    }
+
+    /**
+     * Songs downloaded as songs, albums or artists (not just for a playlist), by album, in
+     * album order. Keyed like the phone's Downloads page: the album, or its name without one.
+     */
+    private fun downloadedAlbums(): Map<String, List<Track>> =
+        g.downloads.records.value.values.filter { it.done && it.direct }.map { it.track }
+            .groupBy { t -> t.albumKey ?: "name:${t.artist}|${t.album}" }
+            .mapValues { (_, ts) -> ts.sortedWith(compareBy({ it.disc ?: 0 }, { it.index ?: 0 }, { it.title.lowercase() })) }
 
     private suspend fun playlists(away: Boolean): List<MediaItem> {
         val all = try {
@@ -149,6 +183,8 @@ class CarLibrary(private val g: Graph) {
                         g.downloads.playlistTracks(key).ifEmpty { throw e }
                     }
                     "album" -> plex.albumTracks(key)
+                    "dlplaylist" -> g.downloads.playlistTracks(key)
+                    "dlalbum" -> downloadedAlbums()[key].orEmpty()
                     "artist" -> if (away) downloadedTracks().filter { it.artistKey == key } else plex.artistTracks(key)
                     "search" -> searchTracks(key)
                     else -> emptyList()
