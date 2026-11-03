@@ -48,6 +48,7 @@ import com.stemify.mobile.ui.components.SheetAction
 import com.stemify.mobile.ui.components.Tag
 import com.stemify.mobile.ui.components.tappable
 import com.stemify.mobile.ui.nav.Route
+import com.stemify.mobile.ui.theme.FitTxt
 import com.stemify.mobile.ui.theme.Ios
 import com.stemify.mobile.ui.theme.Sym
 import com.stemify.mobile.ui.theme.Txt
@@ -213,8 +214,11 @@ fun LazyListScope.albumGrid(
                             Txt(a.title, Type.subhead, Modifier.weight(1f, fill = false), weight = FontWeight.Medium)
                             StemFlag(coverage[a.ratingKey], Modifier.padding(start = 6.dp))
                         }
-                        val sub = subtitle?.invoke(a) ?: if (showArtist) a.artist else a.year?.toString() ?: ""
-                        if (sub.isNotEmpty()) Txt(sub, Type.subhead, color = Ios.colors.label2)
+                        val custom = subtitle?.invoke(a)
+                        val sub = custom ?: if (showArtist) a.artist else a.year?.toString() ?: ""
+                        // A custom line ends in what matters (a date, how long ago): fit it rather than cut it.
+                        if (custom != null && custom.isNotEmpty()) FitTxt(custom, Type.subhead, Modifier.fillMaxWidth(), color = Ios.colors.label2)
+                        else if (sub.isNotEmpty()) Txt(sub, Type.subhead, color = Ios.colors.label2)
                     }
                 }
             }

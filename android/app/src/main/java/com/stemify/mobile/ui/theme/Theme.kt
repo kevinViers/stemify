@@ -1,5 +1,8 @@
 package com.stemify.mobile.ui.theme
 
+import androidx.compose.foundation.MarqueeSpacing
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -10,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -18,6 +22,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stemify.mobile.R
 import com.stemify.mobile.core.Accent
@@ -148,4 +153,42 @@ fun Txt(
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
     )
+}
+
+/**
+ * One line that's never cut off: text that's over by about two digits shrinks to fit (to 85% at
+ * the least); anything longer scrolls slowly across, pausing at the start of each pass.
+ */
+@Composable
+fun FitTxt(text: String, style: TextStyle, modifier: Modifier = Modifier, color: Color = Ios.colors.label) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier) {
+        val max = constraints.maxWidth
+        val (full, slack) = remember(text, style, max) {
+            val m = { t: String -> measurer.measure(t, style, maxLines = 1, softWrap = false).size.width }
+            m(text) to m("00")
+        }
+        val scale = if (full > 0) max.toFloat() / full else 1f
+        when {
+            full <= max -> Txt(text, style, color = color)
+            full - max <= slack && scale >= 0.85f -> {
+                val k = scale * 0.995f  // a hair under, so rounding never brings the ellipsis back
+                val ls = style.letterSpacing
+                Txt(text, style.copy(fontSize = style.fontSize * k, letterSpacing = if (ls.isSp) ls * k else ls), color = color)
+            }
+            else -> BasicText(
+                text = text,
+                modifier = Modifier.basicMarquee(
+                    iterations = Int.MAX_VALUE,
+                    initialDelayMillis = 2000,
+                    repeatDelayMillis = 2500,
+                    spacing = MarqueeSpacing(28.dp),
+                    velocity = 28.dp,
+                ),
+                style = style.copy(color = color),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
 }
