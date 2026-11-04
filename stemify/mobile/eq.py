@@ -77,6 +77,15 @@ def make_filter(kind="peak", freq=1000.0, gain=0.0, q=0.707, slope=12, channel="
             "slope": int(slope), "channel": channel, "on": bool(on)}
 
 
+def _clean_filter(f):
+    """A filter from elsewhere (a nearby controller), in range and with every field."""
+    ch = f.get("channel")
+    return make_filter(f["type"], max(FREQ_MIN, min(FREQ_MAX, float(f.get("freq", 1000)))),
+                       max(-FILTER_GAIN, min(FILTER_GAIN, float(f.get("gain") or 0))),
+                       max(Q_MIN, min(Q_MAX, float(f.get("q") or 0.707))), int(f.get("slope") or 12),
+                       ch if ch in ("both", "left", "right") else "both", bool(f.get("on", True)), str(f.get("id") or "") or None)
+
+
 def starter(kind):
     """Sensible starting points, audible but mild, for a new filter of each type."""
     return {
@@ -674,6 +683,38 @@ class EqController(QObject):
     def linked(self):
         did = self.device["id"]
         return next((p for p in self.state["profiles"] if did in p["devices"]), {})
+
+    def replace_state(self, state):
+        """The whole EQ from a nearby controller. This device keeps its own output, and every
+        output it has seen."""
+        s = _default_state()
+        for k in s:
+            if k in state:
+                s[k] = state[k]
+        profiles = []
+        for p in s["profiles"] or []:
+            if not isinstance(p, dict) or not p.get("id"):
+                continue
+            gains = [max(-MAX_DB, min(MAX_DB, float(g))) for g in (p.get("gains") or [])][:len(BANDS)]
+            filters = [_clean_filter(f) for f in p.get("filters") or [] if isinstance(f, dict) and f.get("type") in TYPES]
+            profiles.append(_profile(str(p["id"]), str(p.get("name") or "Profile"), gains + [0.0] * (len(BANDS) - len(gains)),
+                                     [str(d) for d in p.get("devices") or []], filters,
+                                     max(-PREAMP_RANGE, min(PREAMP_RANGE, float(p.get("preamp") or 0)))))
+        if not profiles:
+            return
+        s["profiles"] = profiles
+        ids = {p["id"] for p in profiles}
+        if s["defaultId"] not in ids:
+            s["defaultId"] = profiles[0]["id"]
+        if s.get("manualId") not in ids:
+            s["manualId"] = None
+        seen = {d["id"]: d for d in self.state.get("seenDevices", [])}
+        for d in state.get("seenDevices") or []:
+            if isinstance(d, dict) and d.get("id") and d["id"] not in seen:
+                seen[d["id"]] = {"id": str(d["id"]), "kind": str(d.get("kind") or "other"), "label": str(d.get("label") or "")}
+        s["seenDevices"] = list(seen.values())[:24]
+        self.state = s
+        self._update()
 
     @Slot(str, result=str)
     def deviceLabel(self, did):

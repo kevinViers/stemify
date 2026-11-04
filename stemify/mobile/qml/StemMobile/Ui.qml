@@ -23,5 +23,6 @@ QtObject {
         shell.overlays.alert({ title: title, message: message || "", confirm: button, run: run, field: initial || "",
                                placeholder: placeholder || "", hasField: true, destructive: false })
     }
+    function devices() { shell.devices() }
     function hud(text, icon) { shell.overlays.hud(text, icon === undefined ? "check" : icon) }
 }

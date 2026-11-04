@@ -11,6 +11,7 @@ RButton 1.0 RButton.qml
 ResizeEdge 1.0 ResizeEdge.qml
 RGroup 1.0 RGroup.qml
 Ribbon 1.0 Ribbon.qml
+SecurityBar 1.0 SecurityBar.qml
 Sheet 1.0 Sheet.qml
 SheetTabs 1.0 SheetTabs.qml
 StatusBar 1.0 StatusBar.qml

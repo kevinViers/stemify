@@ -96,6 +96,17 @@ def main():
     backend.crossfadeChanged.connect(player.replan)
     eq = EqController(os.path.join(DATA_DIR, "eq.json"), engine)
 
+    # Stemify Connect (docs/CONNECT.md): nearby devices can drive this player, and this app can
+    # drive theirs.
+    from ..connect.controller import Nearby
+    from ..connect.discovery import Beacon
+    from ..connect.protocol import device_name, ensure_id
+    from ..connect.receiver import Receiver
+    identity = {"id": ensure_id(cfg), "name": device_name("Stemify Mobile"), "app": "mobile"}
+    config.save(cfg)
+    beacon = Beacon(identity)
+    receiver = Receiver(cfg, identity, player, engine, eq=eq, backend=backend, save=lambda: config.save(cfg), beacon=beacon)
+
     qml = QQmlApplicationEngine()
     qml.addImageProvider("sym", SymProvider())
     qml.addImageProvider("art", ArtProvider(art))
@@ -106,6 +117,9 @@ def main():
     ctx.setContextProperty("engine", engine)
     ctx.setContextProperty("downloads", downloads)
     ctx.setContextProperty("eq", eq)
+    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine, "eq": eq})
+    ctx.setContextProperty("nearby", nearby)
+    ctx.setContextProperty("receiver", receiver)
     qml.load(QUrl.fromLocalFile(os.path.join(HERE, "qml", "StemMobile", "Main.qml")))
     if not qml.rootObjects():
         print("failed to load QML", file=sys.stderr)
@@ -137,6 +151,8 @@ def main():
     keepalive.timeout.connect(lambda: None)
 
     def shutdown():
+        nearby.shutdown()
+        receiver.shutdown()
         player.shutdown()
         engine.shutdown()
         eq.flush()

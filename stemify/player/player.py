@@ -105,7 +105,7 @@ class Player(QObject):
     # thread and only when it changes; the small state (position, mix) saves often.
     QUEUE_PATH = os.path.join(config.CONFIG_DIR, "player-queue.json")
     QUEUE_KEYS = ("key", "title", "artist", "albumArtist", "album", "albumKey", "artistKey", "year", "index", "disc",
-                  "durationMs", "thumb", "partFile", "partKey", "codec", "stemKey", "_cover")
+                  "durationMs", "thumb", "partFile", "partKey", "partId", "partSize", "codec", "stemKey", "_cover")
 
     def _restore(self):
         st = self.cfg.get("state") or {}

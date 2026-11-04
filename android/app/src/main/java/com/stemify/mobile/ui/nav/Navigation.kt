@@ -59,6 +59,7 @@ sealed interface Route {
     data object StemServer : Route { override val title = "Stem Server" }
     data object Quality : Route { override val title = "Stem Quality" }
     data object Crossfade : Route { override val title = "Crossfade" }
+    data object Nearby : Route { override val title = "Nearby Devices" }
     data object Storage : Route { override val title = "Storage" }
     data object Appearance : Route { override val title = "Appearance" }
     data class ArtistPage(val artist: Artist) : Route { override val title get() = artist.title }

@@ -129,6 +129,10 @@ class PlexClient(private val http: OkHttpClient, private val settings: Settings)
 
     suspend fun track(key: String): PlexItem? = get("/library/metadata/$key").metadata.firstOrNull()
 
+    /** Several tracks by rating key, in one request per hundred. */
+    suspend fun tracks(keys: List<String>): List<Track> =
+        keys.chunked(100).flatMap { chunk -> get("/library/metadata/${chunk.joinToString(",")}").metadata.map { it.toTrack() } }
+
     /** Title search inside the music section; used to give stem-only entries Plex metadata. */
     suspend fun searchTracks(title: String): List<Track> =
         get("/library/sections/$section/search", "type" to 10, "query" to title).metadata.map { it.toTrack() }

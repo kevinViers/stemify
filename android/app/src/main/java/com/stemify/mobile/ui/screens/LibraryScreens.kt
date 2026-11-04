@@ -330,8 +330,8 @@ fun SongsScreen() {
                 Column {
                     subtitleTotal?.let { Txt(it, Type.subhead, Modifier.padding(start = MARGIN.dp, bottom = 12.dp), color = Ios.colors.label2) }
                     PlayShuffle(
-                        onPlay = { g.playback.playTracks(pager.tracks.take(1000), 0) },
-                        onShuffle = { g.playback.playTracks(pager.tracks.take(1000), shuffle = true) },
+                        onPlay = { g.controls.playTracks(pager.tracks.take(1000), 0) },
+                        onShuffle = { g.controls.playTracks(pager.tracks.take(1000), shuffle = true) },
                     )
                     Spacer(Modifier.height(12.dp))
                 }
@@ -341,7 +341,7 @@ fun SongsScreen() {
             val t = pager.tracks[i]
             TrackRow(t, onClick = {
                 val from = (i - 200).coerceAtLeast(0)
-                g.playback.playTracks(pager.tracks.subList(from, (i + 800).coerceAtMost(pager.tracks.size)).toList(), i - from)
+                g.controls.playTracks(pager.tracks.subList(from, (i + 800).coerceAtMost(pager.tracks.size)).toList(), i - from)
             }, onMore = { menu.show(t) })
         }
         if (pager.loading) item("more") { LoadingRow() }
@@ -394,7 +394,7 @@ fun AlbumScreen(album: Album) {
                 val meta = listOfNotNull(a.genre?.uppercase(), a.year?.toString()).joinToString(" · ")
                 if (meta.isNotEmpty()) Txt(meta, Type.caption1, Modifier.padding(top = 4.dp), color = c.label2, weight = FontWeight.SemiBold)
                 Spacer(Modifier.height(16.dp))
-                PlayShuffle(onPlay = { g.playback.playTracks(list, 0) }, onShuffle = { g.playback.playTracks(list, shuffle = true) })
+                PlayShuffle(onPlay = { g.controls.playTracks(list, 0) }, onShuffle = { g.controls.playTracks(list, shuffle = true) })
                 Spacer(Modifier.height(16.dp))
                 Hairline(Modifier.padding(start = MARGIN.dp))
             }
@@ -409,7 +409,7 @@ fun AlbumScreen(album: Album) {
                         item("disc${t.disc}") { Txt("Disc ${t.disc}", Type.headline, Modifier.padding(start = MARGIN.dp, top = 18.dp, bottom = 6.dp), color = c.label2) }
                     }
                     item(t.ratingKey) {
-                        TrackRow(t, onClick = { g.playback.playTracks(s.value, i) }, number = t.index ?: (i + 1), showArt = false,
+                        TrackRow(t, onClick = { g.controls.playTracks(s.value, i) }, number = t.index ?: (i + 1), showArt = false,
                             subtitle = t.artist.takeIf { it != a.artist }, onMore = { menu.show(t, allowGoTo = false) })
                     }
                 }
@@ -442,7 +442,7 @@ fun ArtistScreen(artist: Artist) {
     fun playAll(shuffle: Boolean) = scope.launch {
         runCatching { g.plex.artistTracks(artist.ratingKey) }
             .recoverCatching { e -> downloaded().ifEmpty { throw e } }
-            .onSuccess { g.playback.playTracks(it, 0, shuffle) }
+            .onSuccess { g.controls.playTracks(it, 0, shuffle) }
             .onFailure { overlays.hud("Couldn't load songs", Sym.warning) }
     }
     Page(artist.title, trailing = { IconButton(Sym.ellipsis, { menu.artist(artist) }) }) {
@@ -575,7 +575,7 @@ fun DownloadsScreen() {
                 }.joinToString(" · ")
                 Txt("$counts · ${songs(records.size)} · ${"%.1f".format(usage.pinnedBytes / 1e9)} GB · by ${DOWNLOAD_SORTS[sort].lowercase()}",
                     Type.subhead, Modifier.padding(start = MARGIN.dp, bottom = 12.dp), color = c.label2)
-                PlayShuffle(onPlay = { g.playback.playTracks(allDone, 0) }, onShuffle = { g.playback.playTracks(allDone, shuffle = true) })
+                PlayShuffle(onPlay = { g.controls.playTracks(allDone, 0) }, onShuffle = { g.controls.playTracks(allDone, shuffle = true) })
             }
         }
         // Albums first, downloaded playlists below them.
@@ -584,7 +584,7 @@ fun DownloadsScreen() {
             "downloads", albums.map { it.album },
             onClick = { a ->
                 val d = byKey.getValue(a.ratingKey)
-                if (a.ratingKey.startsWith("name:")) g.playback.playTracks(d.tracks, 0) else nav.push(Route.AlbumPage(a))
+                if (a.ratingKey.startsWith("name:")) g.controls.playTracks(d.tracks, 0) else nav.push(Route.AlbumPage(a))
             },
             onLongClick = { a ->
                 val d = byKey.getValue(a.ratingKey)

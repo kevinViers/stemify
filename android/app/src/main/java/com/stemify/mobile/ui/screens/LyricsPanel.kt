@@ -123,7 +123,7 @@ internal fun LyricsPanel(track: Track, position: State<Long>, names: List<String
 /** Vocals On / Guide / Off, from the lyrics. Clears solos so the choice is what you hear. */
 @Composable
 private fun VocalsRow(names: List<String>, mix: Map<String, StemSetting>) {
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val c = Ios.colors
     val v = mix["vocals"] ?: StemSetting()
     val othersSolo = names.any { it != "vocals" && mix[it]?.solo == true }
@@ -146,7 +146,7 @@ private fun VocalsRow(names: List<String>, mix: Map<String, StemSetting>) {
 
 @Composable
 private fun LyricLines(ly: Lyrics, position: State<Long>) {
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val c = Ios.colors
     val lines = ly.lines
     val list = rememberLazyListState()

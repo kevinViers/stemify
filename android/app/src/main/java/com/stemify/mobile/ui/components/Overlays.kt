@@ -69,6 +69,8 @@ class AlertSpec(
     val destructive: Boolean = false,
     val field: String? = null,
     val placeholder: String = "",
+    /** Runs on Cancel (or back), as well as closing. */
+    val onCancel: (() -> Unit)? = null,
     val onConfirm: (String) -> Unit,
 )
 
@@ -80,7 +82,13 @@ class Overlays {
     var sheet by mutableStateOf<Pair<String?, List<SheetAction>>?>(null)
     var alert by mutableStateOf<AlertSpec?>(null)
     var hud by mutableStateOf<HudSpec?>(null)
+    /** The Play On sheet (Stemify Connect's device picker). */
+    var devicesShown by mutableStateOf(false)
     private var hudId = 0L
+
+    fun showDevices() {
+        devicesShown = true
+    }
 
     fun actions(title: String?, actions: List<SheetAction>) {
         sheet = title to actions
@@ -104,6 +112,7 @@ val LocalOverlays = staticCompositionLocalOf { Overlays() }
 @Composable
 fun OverlayHost(o: Overlays) {
     o.sheet?.let { (title, actions) -> ActionSheet(title, actions) { o.sheet = null } }
+    if (o.devicesShown) com.stemify.mobile.ui.screens.DevicesSheet { o.devicesShown = false }
     o.alert?.let { spec -> Alert(spec) { o.alert = null } }
     o.hud?.let { h -> Hud(h) { if (o.hud?.id == h.id) o.hud = null } }
 }
@@ -183,6 +192,7 @@ private fun Alert(spec: AlertSpec, dismiss: () -> Unit) {
     PredictiveBackHandler { events ->
         events.collect { }
         dismiss()
+        spec.onCancel?.invoke()
     }
     fun confirm() {
         dismiss()
@@ -224,7 +234,7 @@ private fun Alert(spec: AlertSpec, dismiss: () -> Unit) {
             Hairline()
             Row(Modifier.fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.Center) {
                 spec.cancel?.let { label ->
-                    AlertButton(label, c.accent, false, Modifier.weight(1f)) { dismiss() }
+                    AlertButton(label, c.accent, false, Modifier.weight(1f)) { dismiss(); spec.onCancel?.invoke() }
                     Box(Modifier.width(0.5.dp).height(44.dp).background(c.separator))
                 }
                 AlertButton(spec.confirm, if (spec.destructive) c.red else c.accent, true, Modifier.weight(1f),

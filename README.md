@@ -27,6 +27,7 @@ pressing the "mute vocals" button at exactly the wrong moment.
 - [Stem Now: skipping the line](#stem-now-skipping-the-line)
 - [The Equalizer](#the-equalizer)
 - [Android Auto](#android-auto)
+- [Nearby control](#nearby-control)
 - [The desktop apps](#the-desktop-apps)
 - [Separation models](#separation-models)
 - [How the pieces find each other](#how-the-pieces-find-each-other)
@@ -94,6 +95,11 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
   Microsoft Excel 2016. Yes, really. Your boss will think you're working on the quarterly numbers.
 - **Stemify Mobile**: the phone app, on your desktop. Same screens, same mixer, same EQ (with
   profiles for your speakers, headphones and Bluetooth), same downloads.
+
+**Between them (Nearby control)**
+- Any of them can drive any other that's on the same Wi-Fi or paired over Bluetooth: pick a device
+  in Now Playing and the whole app (transport, seek bar, mixer, meters, queue, EQ, crossfade, every
+  Play button in your library) plays on that one instead. Or move what's playing over, mid-song.
 
 **On the server**
 - **stemd** separates everything automatically with BS-RoFormer SW (6 stems) on an NVIDIA GPU,
@@ -353,6 +359,42 @@ adb forward tcp:5277 tcp:5277
 
 ---
 
+## Nearby control
+
+Your phone can be the remote for the computer hooked up to the good speakers, and the computer can
+be the remote for the phone plugged into the car stereo. Every Stemify app can be controlled from
+nearby, and the phone app and Stemify Mobile can do the controlling.
+
+**To control another device**, open Now Playing and tap the **Play On** button (the AirPlay-looking
+one beside the queue). Devices running Stemify on the same Wi-Fi show up within a second or two;
+Bluetooth devices show up if they're paired with this one. Pick one and from then on the whole app
+is a remote for it:
+
+- play, pause, skip, 10-second jumps, and the waveform seek bar (with its volume drag)
+- the mixer: faders, mute, solo, Karaoke and the other mixes, live meters, master volume
+- the queue: reorder, remove, Play Next, clear, shuffle, repeat
+- every Play, Shuffle, Add to Queue and Play Next in your library, search and playlists
+- the Equalizer (that device's own profiles, for its own speakers and headphones), crossfade, and
+  Keep Stem Mix Between Songs
+
+The mini player says **Playing on ...**, and the route line under the transport turns into the
+device's name. Pick **This Phone** (or **This Computer**) to go back. While you're controlling one,
+**Move "..." Here** sends what this device was playing over, at the same moment and with the same mix.
+
+**The first time a device on your Wi-Fi tries**, the one being controlled asks: "Allow Pixel 10 to
+control Stemify?" (Stemify Player, being Excel, shows a yellow SECURITY WARNING bar with **Enable
+Content**.) Say yes once and it's remembered. Bluetooth devices don't ask, since pairing already did.
+
+**Settings → Nearby Devices** turns being controlled on or off, separately for Bluetooth, and lists
+who's allowed and who's connected right now. On the phone, Bluetooth needs the Nearby devices
+permission, which it asks for the first time you open Play On.
+
+How it works, for the curious: devices find each other with a small UDP broadcast on port 47809,
+then talk JSON over TCP (port 47810) or Bluetooth RFCOMM. The protocol is written up in
+[`docs/CONNECT.md`](docs/CONNECT.md).
+
+---
+
 ## The desktop apps
 
 ### Stemify (the separator)
@@ -500,10 +542,12 @@ android/                 the Android and Android Auto app (Kotlin, Jetpack Compo
     engine/              decoders, the sample-locked mixer, EQ, limiter, meters
     eq/                  EQ profiles, device switching, APO config import/export
     playback/            queue, audio focus, mix presets, the Media3 session
+    connect/             Nearby control: finding devices, being controlled, controlling others
     auto/                Android Auto browse tree, voice search, offline mode
     ui/                  every screen, hand-built iOS-style components
 docs/
   EQUALIZER.md           the complete Equalizer guide
+  CONNECT.md             the Nearby control protocol
   eq/                    its response graphs, and make_figures.py, which draws them from the app's EQ maths
 server/
   stemd.py               the GPU separation daemon
@@ -513,6 +557,7 @@ stemify/              the desktop separator (PySide6 + QML) and shared separatio
   worker/                separation backends (Demucs, RoFormer) in a separate process
   player/                Stemify Player, the Excel-shaped one (its engine, Plex and stemserve clients are shared)
   mobile/                Stemify Mobile, the phone app on the desktop: its screens in QML, the EQ, downloads
+  connect/               Nearby control for the desktop apps (receiver, controller, Wi-Fi and Bluetooth)
   library_core.py        the folder layout rules shared with stemd
 scripts/install-desktop.sh
 specs.txt                the original design doc for the desktop separator
@@ -550,6 +595,14 @@ Sideloaded apps need **Unknown sources** turned on in Auto's developer settings.
 **Some songs are marked failed in `state/failed.json`.**
 Usually corrupt files, or "songs" over 40 minutes (those are almost always DJ mixes or radio rips).
 Failed tracks retry automatically when the file changes; delete the file to retry everything.
+
+**Play On doesn't find my other device.**
+Both need Stemify open with **Allow Control from Nearby Devices** on, and to be on the same network
+(guest Wi-Fi and some mesh systems keep devices apart). On a computer with a firewall, allow UDP
+47809 and TCP 47810 to 47812 in: on Fedora's default Workstation zone they're already open; with
+plain firewalld, `sudo firewall-cmd --permanent --add-port=47809/udp --add-port=47810-47812/tcp &&
+sudo firewall-cmd --reload`. Over Bluetooth, the devices must be paired first, and the phone needs
+the Nearby devices permission.
 
 **Why is the desktop player an Excel spreadsheet?**
 We don't talk about it.

@@ -77,3 +77,5 @@ ToggleBox 1.0 ToggleBox.qml
 TrackRow 1.0 TrackRow.qml
 Txt 1.0 Txt.qml
 VerticalBandSlider 1.0 VerticalBandSlider.qml
+DevicesSheet 1.0 DevicesSheet.qml
+NearbyScreen 1.0 NearbyScreen.qml

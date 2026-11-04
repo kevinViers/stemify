@@ -2,7 +2,7 @@ import QtQuick
 
 Page {
     id: page
-    title: "Equalizer"
+    title: nearby.active && nearby.hasEq ? nearby.targetName + " EQ" : "Equalizer"
     grouped: true
     largeTitle: false
     readonly property var st: eq.info

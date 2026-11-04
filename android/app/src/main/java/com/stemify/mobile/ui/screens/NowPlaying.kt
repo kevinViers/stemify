@@ -135,7 +135,10 @@ private fun albumColor(thumb: String?, enabled: Boolean, dark: Boolean): Color? 
 @Composable
 fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
     val g = App.graph
-    val pm = g.playback
+    val pm = rememberControls()
+    val remote by g.connect.remote.collectAsState()
+    val connState by g.connect.state.collectAsState()
+    val remoteFormat = remote?.let { it.format.collectAsState().value }
     val base = Ios.colors
     val overlays = LocalOverlays.current
     val app = LocalApp.current
@@ -214,7 +217,7 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                 }
                 Spacer(Modifier.height(18.dp))
                 val badge = when (source) {
-                    SourceKind.Stems -> "${names.size} STEMS · ${if (g.stems.effectiveQuality(quality) == StemQuality.Lossless) "FLAC" else "OPUS ${quality.kbps}"}"
+                    SourceKind.Stems -> "${names.size} STEMS · ${remoteFormat?.ifEmpty { null } ?: if (g.stems.effectiveQuality(quality) == StemQuality.Lossless) "FLAC" else "OPUS ${quality.kbps}"}"
                     SourceKind.Original -> "ORIGINAL · ${track.codec?.uppercase() ?: ""}".trimEnd(' ', '·')
                     SourceKind.None -> null
                 }
@@ -238,11 +241,13 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                     PanelToggle(Sym.quote, panel == NpPanel.Lyrics) { panel = if (panel == NpPanel.Lyrics) NpPanel.Art else NpPanel.Lyrics }
                     Spacer(Modifier.width(4.dp))
                     PanelToggle(Sym.sliders, panel == NpPanel.Mixer) { panel = if (panel == NpPanel.Mixer) NpPanel.Art else NpPanel.Mixer }
+                    val rp = remote
+                    val remoteEq = rp != null && "eq" in rp.caps
                     Row(
-                        Modifier.weight(1f).pressFade { onClose(); app.showInSettings(Route.Eq) },
+                        Modifier.weight(1f).pressFade { if (rp != null && !remoteEq) overlays.showDevices() else { onClose(); app.showInSettings(Route.Eq) } },
                         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(deviceIcon(device).first, c.label2, size = 16.dp)
+                        Icon(if (rp != null) Sym.airplay else deviceIcon(device).first, if (rp != null) c.accent else c.label2, size = 16.dp)
                         Spacer(Modifier.width(6.dp))
                         val p = profile
                         val eqLabel = when {
@@ -250,9 +255,16 @@ fun NowPlayingScreen(onClose: () -> Unit, dragModifier: Modifier) {
                             p.name.equals(device.label, ignoreCase = true) -> " · EQ"
                             else -> " · ${p.name}"
                         }
-                        Txt(device.label + eqLabel, Type.footnote, color = c.label2, weight = FontWeight.Medium)
+                        val label = when {
+                            rp == null -> device.label + eqLabel
+                            remoteEq -> "${rp.device.name} · ${device.label}$eqLabel"
+                            else -> rp.device.name
+                        }
+                        Txt(label, Type.footnote, color = if (rp != null) c.accent else c.label2, weight = FontWeight.Medium)
                     }
-                    Spacer(Modifier.width(44.dp)) // balances the two buttons on the left, so the route stays centred
+                    // Play On (Stemify Connect); with the queue, it balances the two buttons on the left.
+                    PanelToggle(Sym.airplay, rp != null || connState != com.stemify.mobile.connect.Connect.State.Idle) { overlays.showDevices() }
+                    Spacer(Modifier.width(4.dp))
                     PanelToggle(Sym.queue, panel == NpPanel.Queue) { panel = if (panel == NpPanel.Queue) NpPanel.Art else NpPanel.Queue }
                 }
             }
@@ -303,12 +315,12 @@ private fun MiniHeader(thumb: String?, title: String, artist: String, onMore: ()
 
 @Composable
 private fun MixerPanel(names: List<String>, mix: Map<String, StemSetting>, source: SourceKind, master: Float) {
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val c = Ios.colors
     // Live meters, every display frame, showing the block that's audible now: quick attack,
     // ~130 ms fall, timed in seconds so it looks the same at 60 and 165 Hz.
     val levels = remember { mutableStateListOf<Float>() }
-    LaunchedEffect(names) {
+    LaunchedEffect(names, pm) {
         val raw = FloatArray(MeterHistory.MAX_STEMS)
         val shown = FloatArray(names.size)
         var last = 0L
@@ -316,7 +328,7 @@ private fun MixerPanel(names: List<String>, mix: Map<String, StemSetting>, sourc
             val now = withFrameNanos { it }
             val fall = if (last == 0L) 0f else exp(-(now - last) / 1e9f / 0.13f)
             last = now
-            val live = pm.engine.levelsNow(raw)
+            val live = pm.levelsNow(raw)
             for (i in shown.indices) shown[i] = max(if (live) raw.getOrElse(i) { 0f } else 0f, shown[i] * fall)
             if (levels.size != shown.size) { levels.clear(); levels.addAll(shown.toList()) }
             else for (i in shown.indices) if (levels[i] != shown[i]) levels[i] = shown[i]
@@ -398,7 +410,7 @@ private fun ToggleBox(text: String, on: Boolean, onColor: Color, onClick: () -> 
 
 @Composable
 private fun QueuePanel() {
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val c = Ios.colors
     val overlays = LocalOverlays.current
     val queue by pm.queue.collectAsState()
@@ -485,7 +497,8 @@ private fun QueueToggle(icon: ImageVector, on: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun MiniPlayer(onOpen: () -> Unit, dragModifier: Modifier) {
-    val pm = App.graph.playback
+    val pm = rememberControls()
+    val remote by App.graph.connect.remote.collectAsState()
     val c = Ios.colors
     val item by pm.current.collectAsState()
     val playing by pm.playWhenReady.collectAsState()
@@ -500,7 +513,9 @@ fun MiniPlayer(onOpen: () -> Unit, dragModifier: Modifier) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Txt(t.title, Type.subhead, weight = FontWeight.Medium)
-                Txt(t.artist, Type.footnote, color = c.label2)
+                val rp = remote
+                if (rp != null) Txt("Playing on ${rp.device.name}", Type.footnote, color = c.accent)
+                else Txt(t.artist, Type.footnote, color = c.label2)
             }
             Box(Modifier.size(48.dp).pressFade(onClick = pm::togglePlay), contentAlignment = Alignment.Center) {
                 if (buffering && playing) Spinner(size = 22.dp, color = c.label) else Icon(if (playing) Sym.pause else Sym.play, c.label, size = 28.dp)

@@ -73,7 +73,10 @@ import com.stemify.mobile.ui.screens.NowPlayingScreen
 import com.stemify.mobile.ui.screens.PlaylistScreen
 import com.stemify.mobile.ui.screens.PlaylistsScreen
 import com.stemify.mobile.ui.screens.PlexAccountScreen
+import com.stemify.mobile.ui.screens.ConnectApprovals
 import com.stemify.mobile.ui.screens.CrossfadeScreen
+import com.stemify.mobile.ui.screens.NearbyScreen
+import com.stemify.mobile.ui.screens.rememberControls
 import com.stemify.mobile.ui.screens.QualityScreen
 import com.stemify.mobile.ui.screens.SearchScreen
 import com.stemify.mobile.ui.screens.SettingsScreen
@@ -90,6 +93,7 @@ import com.stemify.mobile.ui.theme.Type
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 @Composable
@@ -109,6 +113,7 @@ private fun Screen(route: Route) = when (route) {
     Route.StemServer -> StemServerScreen()
     Route.Quality -> QualityScreen()
     Route.Crossfade -> CrossfadeScreen()
+    Route.Nearby -> NearbyScreen()
     Route.Storage -> StorageScreen()
     Route.Appearance -> AppearanceScreen()
     is Route.ArtistPage -> ArtistScreen(route.artist)
@@ -160,7 +165,7 @@ private fun Shell(openNowPlaying: Int) {
     var tab by remember { mutableStateOf(Tab.Library) }
     val sheet = remember { SheetState(scope) }
     val sheetShown by remember { derivedStateOf { sheet.progress > 0.001f } }
-    val current by g.playback.current.collectAsState()
+    val current by rememberControls().current.collectAsState()
     val density = LocalDensity.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -183,8 +188,8 @@ private fun Shell(openNowPlaying: Int) {
             },
         )
     }
-    LaunchedEffect(openNowPlaying) { if (openNowPlaying > 0 && g.playback.current.value != null) sheet.animateTo(1f) }
-    LaunchedEffect(Unit) { g.playback.messages.collect { overlays.hud(it, Sym.warning) } }
+    LaunchedEffect(openNowPlaying) { if (openNowPlaying > 0 && g.controls.current.value != null) sheet.animateTo(1f) }
+    LaunchedEffect(Unit) { merge(g.playback.messages, g.connect.messages).collect { overlays.hud(it, Sym.warning) } }
 
     val bottomInset = navBottom + 50.dp + if (current != null) 64.dp else 0.dp
 
@@ -282,6 +287,7 @@ private fun Shell(openNowPlaying: Int) {
                 }
             }
 
+            ConnectApprovals()
             OverlayHost(overlays)
         }
     }

@@ -63,6 +63,13 @@ def main():
     player.library = library
     library.update_queue()
 
+    # Nearby devices can drive this player (Stemify Connect, docs/CONNECT.md).
+    from ..connect.protocol import device_name, ensure_id
+    from ..connect.receiver import Receiver
+    identity = {"id": ensure_id(cfg), "name": device_name("Stemify Player"), "app": "player"}
+    config.save(cfg)
+    receiver = Receiver(cfg, identity, player, engine, save=lambda: config.save(cfg))
+
     qml = QQmlApplicationEngine()
     qml.addImageProvider("icon", IconProvider())
     qml.addImportPath(os.path.join(HERE, "qml"))
@@ -71,6 +78,7 @@ def main():
     ctx.setContextProperty("sheetModel", library.model)
     ctx.setContextProperty("player", player)
     ctx.setContextProperty("engine", engine)
+    ctx.setContextProperty("receiver", receiver)
     settings = _Settings(cfg)
     ctx.setContextProperty("settings", settings)
     ctx.setContextProperty("uiFont", ui_font)
@@ -105,6 +113,7 @@ def main():
     keepalive.timeout.connect(lambda: None)
 
     def shutdown():
+        receiver.shutdown()
         player.shutdown()
         engine.shutdown()
         config.save(cfg)

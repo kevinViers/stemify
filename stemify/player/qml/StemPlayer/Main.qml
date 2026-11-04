@@ -116,6 +116,7 @@ Window {
         TitleBar { width: parent.width }
         Ribbon { id: ribbon; width: parent.width }
         MessageBar { id: messages; width: parent.width }
+        SecurityBar { width: parent.width }
         FormulaBar { width: parent.width }
         Item {
             width: parent.width

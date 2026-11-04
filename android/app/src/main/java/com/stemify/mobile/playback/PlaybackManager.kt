@@ -114,38 +114,38 @@ class PlaybackManager(
     private val scope: CoroutineScope,
     /** Whether the home server answered last time anyone asked; away, songs that aren't downloaded are skipped. */
     private val home: () -> Boolean,
-) : StemEngine.Listener {
+) : StemEngine.Listener, Controls {
 
     val engine = StemEngine(this)
     private val main = Handler(Looper.getMainLooper())
     private val queueFile = File(context.filesDir, "queue.json")
 
     private val _queue = MutableStateFlow<List<QueueItem>>(emptyList())
-    val queue: StateFlow<List<QueueItem>> = _queue.asStateFlow()
+    override val queue: StateFlow<List<QueueItem>> = _queue.asStateFlow()
     private val _index = MutableStateFlow(-1)
-    val index: StateFlow<Int> = _index.asStateFlow()
+    override val index: StateFlow<Int> = _index.asStateFlow()
     private val _current = MutableStateFlow<QueueItem?>(null)
-    val current: StateFlow<QueueItem?> = _current.asStateFlow()
+    override val current: StateFlow<QueueItem?> = _current.asStateFlow()
     private val _playWhenReady = MutableStateFlow(false)
-    val playWhenReady: StateFlow<Boolean> = _playWhenReady.asStateFlow()
+    override val playWhenReady: StateFlow<Boolean> = _playWhenReady.asStateFlow()
     private val _buffering = MutableStateFlow(false)
-    val buffering: StateFlow<Boolean> = _buffering.asStateFlow()
+    override val buffering: StateFlow<Boolean> = _buffering.asStateFlow()
     private val _shuffle = MutableStateFlow(false)
-    val shuffle: StateFlow<Boolean> = _shuffle.asStateFlow()
+    override val shuffle: StateFlow<Boolean> = _shuffle.asStateFlow()
     private val _repeat = MutableStateFlow(RepeatMode.Off)
-    val repeat: StateFlow<RepeatMode> = _repeat.asStateFlow()
+    override val repeat: StateFlow<RepeatMode> = _repeat.asStateFlow()
     private val _source = MutableStateFlow(SourceKind.None)
-    val source: StateFlow<SourceKind> = _source.asStateFlow()
+    override val source: StateFlow<SourceKind> = _source.asStateFlow()
     private val _stemNames = MutableStateFlow<List<String>>(emptyList())
-    val stemNames: StateFlow<List<String>> = _stemNames.asStateFlow()
+    override val stemNames: StateFlow<List<String>> = _stemNames.asStateFlow()
     private val _mix = MutableStateFlow<Map<String, StemSetting>>(emptyMap())
-    val mix: StateFlow<Map<String, StemSetting>> = _mix.asStateFlow()
+    override val mix: StateFlow<Map<String, StemSetting>> = _mix.asStateFlow()
     private val _master = MutableStateFlow(settings.masterVolume.value)
-    val master: StateFlow<Float> = _master.asStateFlow()
+    override val master: StateFlow<Float> = _master.asStateFlow()
     private val _waveform = MutableStateFlow<Waveform?>(null)
-    val waveform: StateFlow<Waveform?> = _waveform.asStateFlow()
+    override val waveform: StateFlow<Waveform?> = _waveform.asStateFlow()
     private val _durationMs = MutableStateFlow(0L)
-    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+    override val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
@@ -201,7 +201,7 @@ class PlaybackManager(
     fun removeListener(l: () -> Unit) = listeners.remove(l)
     private fun changed() = listeners.forEach { it() }
 
-    fun positionMs(): Long {
+    override fun positionMs(): Long {
         val snap = engine.snapshot
         val pos = if (currentToken >= 0 && snap.token == currentToken) snap.positionMs() else pendingPositionMs
         val d = _durationMs.value
@@ -210,7 +210,7 @@ class PlaybackManager(
 
     // ---- queue --------------------------------------------------------------------------
 
-    fun playTracks(tracks: List<Track>, start: Int = 0, shuffle: Boolean = false) {
+    override fun playTracks(tracks: List<Track>, start: Int, shuffle: Boolean) {
         if (tracks.isEmpty()) return
         // Shuffle on the list that's already playing: keep the song going and deal the whole
         // list out again in a new order, rather than starting over on a random song.
@@ -234,8 +234,8 @@ class PlaybackManager(
         }
     }
 
-    fun playNext(tracks: List<Track>) = insert(_index.value + 1, tracks)
-    fun addToQueue(tracks: List<Track>) = insert(_queue.value.size, tracks)
+    override fun playNext(tracks: List<Track>) = insert(_index.value + 1, tracks)
+    override fun addToQueue(tracks: List<Track>) = insert(_queue.value.size, tracks)
 
     private fun insert(at: Int, tracks: List<Track>) {
         if (tracks.isEmpty()) return
@@ -253,7 +253,7 @@ class PlaybackManager(
         }
     }
 
-    fun removeAt(i: Int) {
+    override fun removeAt(i: Int) {
         val q = _queue.value.toMutableList()
         if (i !in q.indices) return
         val removed = q.removeAt(i)
@@ -270,7 +270,7 @@ class PlaybackManager(
         save()
     }
 
-    fun move(from: Int, to: Int) {
+    override fun move(from: Int, to: Int) {
         val q = _queue.value.toMutableList()
         if (from !in q.indices || to !in q.indices || from == to) return
         q.add(to, q.removeAt(from))
@@ -287,7 +287,7 @@ class PlaybackManager(
         save()
     }
 
-    fun clearUpNext() {
+    override fun clearUpNext() {
         val idx = _index.value
         if (idx < 0) return
         _queue.value = _queue.value.take(idx + 1)
@@ -298,7 +298,7 @@ class PlaybackManager(
         save()
     }
 
-    fun toggleShuffle() {
+    override fun toggleShuffle() {
         if (!_shuffle.value) return reshuffle()
         val q = _queue.value
         val cur = q.getOrNull(_index.value)
@@ -337,7 +337,7 @@ class PlaybackManager(
         return have.size == tracks.size && have.sorted() == tracks.map { it.ratingKey }.sorted()
     }
 
-    fun cycleRepeat() {
+    override fun cycleRepeat() {
         _repeat.value = RepeatMode.entries[(_repeat.value.ordinal + 1) % RepeatMode.entries.size]
         requeueNext()
         changed()
@@ -352,7 +352,7 @@ class PlaybackManager(
 
     // ---- transport ----------------------------------------------------------------------
 
-    fun play() {
+    override fun play() {
         if (_queue.value.isEmpty()) return
         if (!requestFocus()) return
         _playWhenReady.value = true
@@ -366,7 +366,7 @@ class PlaybackManager(
         changed()
     }
 
-    fun pause() {
+    override fun pause() {
         _playWhenReady.value = false
         engine.setPlaying(false)
         holdLocks(false)
@@ -376,9 +376,9 @@ class PlaybackManager(
         save()
     }
 
-    fun togglePlay() = if (_playWhenReady.value) pause() else play()
+    override fun togglePlay() = if (_playWhenReady.value) pause() else play()
 
-    fun next() {
+    override fun next() {
         val q = _queue.value
         if (q.isEmpty()) return
         val i = _index.value + 1
@@ -389,7 +389,7 @@ class PlaybackManager(
         }
     }
 
-    fun previous() {
+    override fun previous() {
         if (positionMs() > 3000 || _index.value <= 0) {
             seekTo(0)
             return
@@ -397,18 +397,18 @@ class PlaybackManager(
         load(_index.value - 1, 0, _playWhenReady.value)
     }
 
-    fun skipTo(i: Int, positionMs: Long = 0) {
+    override fun skipTo(i: Int, positionMs: Long) {
         if (i in _queue.value.indices) load(i, positionMs, true)
     }
 
     /** Jumps [deltaMs] back or ahead in the song; past the end is the next song. */
-    fun skipBy(deltaMs: Long) {
+    override fun skipBy(deltaMs: Long) {
         val d = _durationMs.value
         val to = positionMs() + deltaMs
         if (d > 0 && to >= d) next() else seekTo(to.coerceAtLeast(0))
     }
 
-    fun seekTo(ms: Long) {
+    override fun seekTo(ms: Long) {
         pendingPositionMs = ms.coerceAtLeast(0)
         if (currentToken >= 0) engine.seekTo(pendingPositionMs)
         changed()
@@ -436,9 +436,9 @@ class PlaybackManager(
 
     // ---- mixer --------------------------------------------------------------------------
 
-    fun setStemLevel(name: String, level: Float) = editMix(name) { it.copy(level = level.coerceIn(0f, 1f)) }
-    fun toggleMute(name: String) = editMix(name) { it.copy(muted = !it.muted) }
-    fun toggleSolo(name: String) = editMix(name) { it.copy(solo = !it.solo) }
+    override fun setStemLevel(name: String, level: Float) = editMix(name) { it.copy(level = level.coerceIn(0f, 1f)) }
+    override fun toggleMute(name: String) = editMix(name) { it.copy(muted = !it.muted) }
+    override fun toggleSolo(name: String) = editMix(name) { it.copy(solo = !it.solo) }
 
     fun resetMix() {
         _mix.value = emptyMap()
@@ -446,7 +446,7 @@ class PlaybackManager(
     }
 
     /** Karaoke and friends: set every stem at once. */
-    fun applyMix(m: Map<String, StemSetting>) {
+    override fun applyMix(m: Map<String, StemSetting>) {
         _mix.value = m
         pushMix()
     }
@@ -484,7 +484,9 @@ class PlaybackManager(
 
     fun hasStems(track: Track) = stems.find(track) != null
 
-    fun setMaster(v: Float) {
+    override fun levelsNow(out: FloatArray) = engine.levelsNow(out)
+
+    override fun setMaster(v: Float) {
         _master.value = v.coerceIn(0f, 1f)
         engine.masterGain = masterTaper(_master.value) * duck
         settings.masterVolume.value = _master.value

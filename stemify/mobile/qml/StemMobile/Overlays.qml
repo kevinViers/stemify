@@ -15,6 +15,7 @@ Item {
     function hud(text, icon) { hudText = text; hudIcon = icon || ""; hudAnim.restart() }
     function closeSheet(then) { sheetOut.then = then || null; sheetOut.restart() }
     function closeAlert() { spec = null; field.focus = false }
+    function cancelAlert() { var s = spec; closeAlert(); if (s && s.cancelRun) s.cancelRun() }
     function confirmAlert() {
         var s = spec
         if (!s || (s.hasField && !field.text.trim())) return
@@ -23,7 +24,7 @@ Item {
     }
     // Esc: alerts, then sheets.
     function back() {
-        if (spec) { closeAlert(); return true }
+        if (spec) { cancelAlert(); return true }
         if (sheet) { closeSheet(); return true }
         return false
     }
@@ -139,7 +140,7 @@ Item {
                         color: Ios.label; selectionColor: Ios.accent; selectByMouse: true; clip: true
                         Keys.onReturnPressed: o.confirmAlert()
                         Keys.onEnterPressed: o.confirmAlert()
-                        Keys.onEscapePressed: o.closeAlert()
+                        Keys.onEscapePressed: o.cancelAlert()
                     }
                 }
                 Item { width: 1; height: 14 }
@@ -152,8 +153,8 @@ Item {
                 Item {
                     width: parent.width / 2; height: 44
                     Rectangle { anchors.fill: parent; color: c1.pressed ? Ios.cellPressed : "transparent"; bottomLeftRadius: 14 }
-                    Txt { anchors.centerIn: parent; text: "Cancel"; color: Ios.accent }
-                    MouseArea { id: c1; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: o.closeAlert() }
+                    Txt { anchors.centerIn: parent; text: o.spec && o.spec.cancel ? o.spec.cancel : "Cancel"; color: Ios.accent }
+                    MouseArea { id: c1; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: o.cancelAlert() }
                 }
                 Rectangle { width: 0.5; height: 44; color: Ios.separator }
                 Item {

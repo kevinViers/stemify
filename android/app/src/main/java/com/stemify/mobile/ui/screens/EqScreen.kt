@@ -69,6 +69,7 @@ fun EqScreen() {
     val state by eq.state.collectAsState()
     val device by eq.device.collectAsState()
     val active by eq.active.collectAsState()
+    val remote by App.graph.connect.remote.collectAsState()
     val linked = state.profiles.firstOrNull { device in it.devices }
     val profile = active
     val nav = LocalNav.current
@@ -107,7 +108,7 @@ fun EqScreen() {
     }
 
     // One screen, no scrolling: profile management and presets live in sheets.
-    Page("Equalizer", grouped = true, largeTitle = false) {
+    Page(remote?.takeIf { "eq" in it.caps }?.let { "${it.device.name} EQ" } ?: "Equalizer", grouped = true, largeTitle = false) {
         section("enabled", rows = listOf(
             { Cell("Equalizer", icon = { SettingsIcon(Sym.sliders, c.accent) }, trailing = { IosSwitch(state.enabled, eq::setEnabled) }) },
             { Cell("Anti-Clipping Preamp", trailing = { IosSwitch(state.antiClip, eq::setAntiClip) }) },

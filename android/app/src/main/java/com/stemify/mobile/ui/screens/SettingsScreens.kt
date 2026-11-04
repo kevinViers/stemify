@@ -91,6 +91,12 @@ fun SettingsScreen() {
     val usage by g.cache.usage.collectAsState()
     val eqState by g.eq.state.collectAsState()
     val eqProfile by g.eq.active.collectAsState()
+    val remote by g.connect.remote.collectAsState()
+    val connectOn by s.connectEnabled.flow.collectAsState()
+    // While another device is being controlled, its crossfade and mix setting show (and change) here.
+    val rp = remote
+    val rcf = rp?.let { it.crossfade.collectAsState().value }
+    val rkeep = rp?.let { it.keepMix.collectAsState().value }
     val view = LocalView.current
     val mode = view.display?.mode
 
@@ -108,14 +114,19 @@ fun SettingsScreen() {
             { Cell("Equalizer", icon = { SettingsIcon(Sym.sliders, Color(0xFF34C759)) }, value = if (!eqState.enabled) "Off" else eqProfile?.name ?: "On", chevron = true) { nav.push(Route.Eq) } },
             { Cell("Stem Quality", icon = { SettingsIcon(Sym.gauge, Color(0xFFFF2D55)) }, value = quality.label, chevron = true) { nav.push(Route.Quality) } },
             { Cell("Crossfade", icon = { SettingsIcon(Sym.shuffle, Color(0xFFFF9F0A)) }, chevron = true,
-                value = when (crossfade) {
+                value = when (val m = rcf?.mode ?: crossfade) {
                     CrossfadeMode.Off -> "Off"
-                    CrossfadeMode.Fixed -> "$crossfadeS s"
-                    else -> "Smart · ${crossfade.name}"
+                    CrossfadeMode.Fixed -> "${rcf?.seconds ?: crossfadeS} s"
+                    else -> "Smart · ${m.name}"
                 }) { nav.push(Route.Crossfade) } },
-            { Cell("Keep Stem Mix Between Songs", icon = { SettingsIcon(Sym.speakerWave, Color(0xFF5856D6)) }, trailing = { IosSwitch(keepMix, { s.keepStemMix.value = it }) }) },
+            { Cell("Keep Stem Mix Between Songs", icon = { SettingsIcon(Sym.speakerWave, Color(0xFF5856D6)) },
+                trailing = { IosSwitch(rkeep ?: keepMix, { on -> if (rp != null) rp.setKeepMix(on) else s.keepStemMix.value = on }) }) },
             { Cell("Search LRCLIB for Lyrics", icon = { SettingsIcon(Sym.quote, Color(0xFFFF9500)) }, trailing = { IosSwitch(onlineLyrics, { s.onlineLyrics.value = it }) }) },
         ))
+        section("nearby", header = "Nearby", separatorInset = 60.dp, rows = listOf {
+            Cell("Nearby Devices", icon = { SettingsIcon(Sym.airplay, Color(0xFF007AFF)) }, chevron = true,
+                value = rp?.let { "On ${it.device.name}" } ?: if (connectOn) null else "Off") { nav.push(Route.Nearby) }
+        })
         section("storage", header = "Storage", separatorInset = 60.dp, rows = listOf(
             { Cell("Cache & Downloads", icon = { SettingsIcon(Sym.externalDrive, Color(0xFF8E8E93)) }, value = gb(usage.cachedBytes), chevron = true) { nav.push(Route.Storage) } },
             { Cell("Download on Wi-Fi Only", icon = { SettingsIcon(Sym.download, Color(0xFF30B0C7)) }, trailing = { IosSwitch(wifi, { s.downloadsWifiOnly.value = it }) }) },
@@ -345,30 +356,46 @@ fun QualityScreen() {
 @Composable
 fun CrossfadeScreen() {
     val s = App.graph.settings
-    val mode by s.crossfade.flow.collectAsState()
-    val seconds by s.crossfadeSeconds.flow.collectAsState()
-    val albums by s.crossfadeAlbums.flow.collectAsState()
+    val localMode by s.crossfade.flow.collectAsState()
+    val localSeconds by s.crossfadeSeconds.flow.collectAsState()
+    val localAlbums by s.crossfadeAlbums.flow.collectAsState()
+    // The device being controlled (Stemify Connect), when there is one.
+    val remote by App.graph.connect.remote.collectAsState()
+    val rp = remote
+    val rcf = rp?.let { it.crossfade.collectAsState().value }
+    val mode = rcf?.mode ?: localMode
+    val seconds = rcf?.seconds ?: localSeconds
+    val albums = rcf?.albums ?: localAlbums
+    fun setMode(m: CrossfadeMode) {
+        if (rp != null && rcf != null) rp.setCrossfade(rcf.copy(mode = m)) else s.crossfade.value = m
+    }
+    fun setSeconds(n: Int) {
+        if (rp != null && rcf != null) rp.setCrossfade(rcf.copy(mode = CrossfadeMode.Fixed, seconds = n)) else {
+            s.crossfadeSeconds.value = n
+            s.crossfade.value = CrossfadeMode.Fixed
+        }
+    }
+    fun setAlbums(on: Boolean) {
+        if (rp != null && rcf != null) rp.setCrossfade(rcf.copy(albums = on)) else s.crossfadeAlbums.value = on
+    }
     val range = Crossfade.FIXED_RANGE
     Page("Crossfade", grouped = true) {
-        section("off", rows = listOf({ Cell("Off", subtitle = "Gapless: each song straight into the next", checked = mode == CrossfadeMode.Off) { s.crossfade.value = CrossfadeMode.Off } }))
+        section("off", footer = rp?.let { "On ${it.device.name}." }, rows = listOf({ Cell("Off", subtitle = "Gapless: each song straight into the next", checked = mode == CrossfadeMode.Off) { setMode(CrossfadeMode.Off) } }))
         section("smart", header = "Smart",
             footer = "Listens to the end of one song and the start of the next: skips the silence between them, crosses a song that fades out over its fade, and lets a quiet intro start under a cold ending. The length is the most the two will overlap.",
             rows = listOf(
                 CrossfadeMode.Short to "Up to 4 seconds",
                 CrossfadeMode.Medium to "Up to 7 seconds",
                 CrossfadeMode.Long to "Up to 12 seconds",
-            ).map { (m, detail) -> { Cell(m.name, subtitle = detail, checked = mode == m) { s.crossfade.value = m } } })
+            ).map { (m, detail) -> { Cell(m.name, subtitle = detail, checked = mode == m) { setMode(m) } } })
         section("fixed", header = "Fixed", footer = "Always overlaps by this long, silence at either end trimmed.", rows = listOf(
-            { Cell("Fixed", value = "$seconds s", checked = mode == CrossfadeMode.Fixed) { s.crossfade.value = CrossfadeMode.Fixed } },
+            { Cell("Fixed", value = "$seconds s", checked = mode == CrossfadeMode.Fixed) { setMode(CrossfadeMode.Fixed) } },
             {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Txt("${range.first} s", Type.footnote, color = Ios.colors.label2)
                     IosSlider(
                         (seconds - range.first).toFloat() / (range.last - range.first),
-                        { v ->
-                            s.crossfadeSeconds.value = range.first + Math.round(v * (range.last - range.first))
-                            s.crossfade.value = CrossfadeMode.Fixed
-                        },
+                        { v -> setSeconds(range.first + Math.round(v * (range.last - range.first))) },
                         Modifier.weight(1f).padding(horizontal = 10.dp),
                     )
                     Txt("${range.last} s", Type.footnote, color = Ios.colors.label2)
@@ -376,7 +403,7 @@ fun CrossfadeScreen() {
             },
         ))
         section("albums", footer = "Off keeps an album's songs gapless when they play in order, as live and concept albums are meant to.", rows = listOf(
-            { Cell("Crossfade Within Albums", trailing = { IosSwitch(albums, { s.crossfadeAlbums.value = it }) }) },
+            { Cell("Crossfade Within Albums", trailing = { IosSwitch(albums, { setAlbums(it) }) }) },
         ))
     }
 }

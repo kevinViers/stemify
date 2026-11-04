@@ -42,10 +42,27 @@ Window {
             if (!(s.currentItem && s.currentItem.objectName === page && page === "EqScreen")) s.push(Qt.resolvedUrl(page + ".qml"), props)
         }
         function sheetTo(v) { sheetAnim.to = v; sheetAnim.restart() }
+        function devices() { devicesSheet.open() }
     }
     Component.onCompleted: Ui.shell = shell
     Connections { target: app; function onHud(text, icon) { Ui.hud(text, icon) } }
     Connections { target: player; function onToast(msg) { Ui.hud(msg, "warning") } }
+    Connections { target: nearby; function onHud(text, icon) { Ui.hud(text, icon) } }
+    // A device on the Wi-Fi asking to control this computer (Stemify Connect).
+    property string asking: ""
+    function askNext() {
+        var p = receiver.pending
+        if (!p.length) { if (asking && overlays.spec && overlays.spec.connect) overlays.closeAlert(); asking = ""; return }
+        if (asking === p[0].id) return
+        asking = p[0].id
+        var who = p[0]
+        overlays.alert({ title: "Allow “" + who.name + "” to control Stemify?", connect: true,
+                         message: "It's on your network and wants to play, pause, mix and queue music on this computer. You won't be asked again.",
+                         confirm: "Allow", cancel: "Don't Allow", destructive: false,
+                         run: () => { win.asking = ""; receiver.approve(who.id, true) },
+                         cancelRun: () => { win.asking = ""; receiver.deny(who.id) } })
+    }
+    Connections { target: receiver; function onApprovalsChanged() { win.askNext() } }
 
     // Now Playing's position: 0 hidden, 1 fully up.
     property real sheet: 0
@@ -101,12 +118,14 @@ Window {
         dragEnd: (dy) => shell.sheetTo(win.sheet < 0.75 ? 0 : 1)
     }
 
+    DevicesSheet { id: devicesSheet }
     Overlays { id: overlays }
 
     // ---- keys ----
     function typing() { return activeFocusItem && (activeFocusItem instanceof TextInput) }
     Shortcut { sequences: ["Escape", "Back"]; onActivated: {
         if (overlays.back()) return
+        if (devicesSheet.isOpen) { devicesSheet.close(); return }
         if (win.sheet > 0.5) { shell.sheetTo(0); return }
         shell.pop()
     } }

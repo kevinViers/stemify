@@ -124,7 +124,7 @@ class EqController(context: Context) {
     private val saveTask = Runnable {
         runCatching {
             val tmp = File(file.parentFile, "eq.json.tmp")
-            tmp.writeText(AppJson.encodeToString(EqState.serializer(), state.value))
+            tmp.writeText(AppJson.encodeToString(EqState.serializer(), localState))
             tmp.renameTo(file)
         }
     }
@@ -138,6 +138,61 @@ class EqController(context: Context) {
     val active: StateFlow<EqProfile?> = _active.asStateFlow()
 
     var onParams: ((EqParams?) -> Unit)? = null
+
+    // ---- Stemify Connect: another device's EQ on these screens -----------------------
+
+    /** Set while the screens show another device's EQ: edits go to it. */
+    private var remoteSink: ((EqState) -> Unit)? = null
+    /** This phone's own EQ and route while a remote one is shown. */
+    private var localSaved: Pair<EqState, OutputDevice>? = null
+    private val _localVersion = MutableStateFlow(0)
+    /** Changes whenever this phone's own EQ or route does, whether or not a remote one is shown. */
+    val localVersion: StateFlow<Int> = _localVersion.asStateFlow()
+    val localState: EqState get() = localSaved?.first ?: _state.value
+    val localDevice: OutputDevice get() = localSaved?.second ?: _device.value
+
+    fun attachRemote(state: EqState, device: OutputDevice, sink: (EqState) -> Unit) {
+        if (localSaved == null) localSaved = _state.value to _device.value
+        remoteSink = sink
+        showRemote(state, device)
+    }
+
+    fun showRemote(state: EqState, device: OutputDevice) {
+        if (remoteSink == null) return
+        _state.value = state
+        _device.value = device
+        _active.value = resolve(state, device)
+    }
+
+    fun detachRemote() {
+        val (s, d) = localSaved ?: return
+        remoteSink = null
+        localSaved = null
+        _state.value = s
+        _device.value = d
+        publish()
+    }
+
+    /** A whole EQ from a nearby controller. This phone keeps its own route and the routes it has seen. */
+    fun replaceState(s: EqState) {
+        val mine = localState.seenDevices
+        applyLocal(s.copy(seenDevices = (mine + s.seenDevices.filter { it !in mine && it.type != 0 }).take(24)))
+    }
+
+    private fun applyLocal(s: EqState) {
+        val saved = localSaved
+        if (saved != null) {
+            localSaved = s to saved.second
+            onParams?.invoke(paramsFor(s, resolve(s, saved.second)))
+        } else {
+            _state.value = s
+            publish()
+        }
+        // Slider drags update many times a second; write once they settle.
+        main.removeCallbacks(saveTask)
+        main.postDelayed(saveTask, 400)
+        _localVersion.value++
+    }
 
     init {
         am.registerAudioDeviceCallback(object : AudioDeviceCallback() {
@@ -159,10 +214,25 @@ class EqController(context: Context) {
     }
 
     private fun setDevice(d: OutputDevice) {
+        val saved = localSaved
+        if (saved != null) {
+            val s = saved.first
+            if (saved.second == d && d in s.seenDevices) return
+            localSaved = s to d
+            if (d !in s.seenDevices) applyLocal(s.copy(seenDevices = (listOf(d) + s.seenDevices).take(24)))
+            else {
+                onParams?.invoke(paramsFor(s, resolve(s, d)))
+                _localVersion.value++
+            }
+            return
+        }
         if (_device.value == d && d in _state.value.seenDevices) return
         _device.value = d
         val s = _state.value
-        if (d !in s.seenDevices) update(s.copy(seenDevices = (listOf(d) + s.seenDevices).take(24))) else publish()
+        if (d !in s.seenDevices) applyLocal(s.copy(seenDevices = (listOf(d) + s.seenDevices).take(24))) else {
+            publish()
+            _localVersion.value++
+        }
     }
 
     // ---- edits ------------------------------------------------------------------------
@@ -237,11 +307,11 @@ class EqController(context: Context) {
     }
 
     private fun update(s: EqState) {
+        val sink = remoteSink
+        if (sink == null) return applyLocal(s)
         _state.value = s
-        publish()
-        // Slider drags update many times a second; write once they settle.
-        main.removeCallbacks(saveTask)
-        main.postDelayed(saveTask, 400)
+        _active.value = resolve(s, _device.value)
+        sink(s)
     }
 
     private fun publish() {
@@ -251,7 +321,7 @@ class EqController(context: Context) {
         onParams?.invoke(paramsFor(s, p))
     }
 
-    fun currentParams(): EqParams? = paramsFor(_state.value, _active.value)
+    fun currentParams(): EqParams? = paramsFor(localState, resolve(localState, localDevice))
 
     private fun resolve(s: EqState, d: OutputDevice): EqProfile? {
         if (!s.automatic && s.manualId != null) s.profiles.firstOrNull { it.id == s.manualId }?.let { return it }

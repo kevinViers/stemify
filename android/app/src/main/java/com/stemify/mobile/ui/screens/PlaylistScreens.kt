@@ -85,12 +85,12 @@ fun PlaylistsScreen() {
                 .map { it.playlist.copy(trackCount = it.keys.size) }.ifEmpty { throw e }
         }
     }
-    val queue by g.playback.queue.collectAsState()
+    val queue by rememberControls().queue.collectAsState()
     LaunchedEffect(Unit) { lists.refresh() }
     Page("Playlists", trailing = {
         IconButton(Sym.plus, {
             // Plex can't hold an empty playlist, so new ones start from songs you have.
-            val now = g.playback.current.value?.track
+            val now = g.controls.current.value?.track
             val acts = buildList {
                 if (queue.isNotEmpty()) add(SheetAction("New Playlist from Queue (${queue.size})") { menu.newPlaylist(queue.map { it.track }) { lists.refresh() } })
                 if (now != null) add(SheetAction("New Playlist with “${now.title}”") { menu.newPlaylist(listOf(now)) { lists.refresh() } })
@@ -238,7 +238,7 @@ fun PlaylistScreen(playlist: Playlist) {
                 Txt(title, Type.title2, Modifier.padding(horizontal = 32.dp), align = TextAlign.Center, maxLines = 2)
                 if (list.isNotEmpty()) Txt("${songs(list.size)} · ${formatMinutes(list.sumOf { it.durationMs })}", Type.subhead, color = c.label2)
                 Spacer(Modifier.height(14.dp))
-                if (!edit.editing) PlayShuffle(onPlay = { g.playback.playTracks(list, 0) }, onShuffle = { g.playback.playTracks(list, shuffle = true) })
+                if (!edit.editing) PlayShuffle(onPlay = { g.controls.playTracks(list, 0) }, onShuffle = { g.controls.playTracks(list, shuffle = true) })
             }
         }
         when (val s = tracks.state.value) {
@@ -288,7 +288,7 @@ fun PlaylistScreen(playlist: Playlist) {
             } else {
                 items(s.value.size, key = { s.value[it].playlistItemId ?: it.toLong() }) { i ->
                     val t = s.value[i]
-                    TrackRow(t, onClick = { g.playback.playTracks(s.value, i) }, onMore = {
+                    TrackRow(t, onClick = { g.controls.playTracks(s.value, i) }, onMore = {
                         menu.show(t, extra = if (playlist.smart) emptyList() else listOf(SheetAction("Remove from Playlist", destructive = true) {
                             g.scope.launch {
                                 runCatching { t.playlistItemId?.let { g.plex.removeFromPlaylist(playlist.ratingKey, it) } }
@@ -349,7 +349,7 @@ fun SearchScreen() {
                     item("th") { SectionTitle("Songs") }
                     items(s.tracks.size, key = { "t" + s.tracks[it].ratingKey }) { i ->
                         val t = s.tracks[i]
-                        TrackRow(t, onClick = { g.playback.playTracks(s.tracks, i) }, subtitle = "${t.artist} — ${t.album}", onMore = { menu.show(t) })
+                        TrackRow(t, onClick = { g.controls.playTracks(s.tracks, i) }, subtitle = "${t.artist} — ${t.album}", onMore = { menu.show(t) })
                     }
                 }
                 if (s.playlists.isNotEmpty()) {

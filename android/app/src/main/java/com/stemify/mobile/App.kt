@@ -20,6 +20,8 @@ import com.stemify.mobile.core.Connectivity
 import com.stemify.mobile.core.Settings
 import com.stemify.mobile.eq.EqController
 import com.stemify.mobile.lyrics.LyricsRepo
+import com.stemify.mobile.connect.Connect
+import com.stemify.mobile.playback.Controls
 import com.stemify.mobile.playback.PlaybackManager
 import com.stemify.mobile.plex.PlexClient
 import com.stemify.mobile.stems.StemCoverage
@@ -148,6 +150,10 @@ class Graph(app: App) {
     val downloads = Downloads(app, settings, plex, stems, cache, net, lyrics, scope)
     val playback = PlaybackManager(app, settings, plex, stems, cache, downloads, eq, scope) { reach.lastKnown }
     val coverage = StemCoverage(plex, stems, settings, app.filesDir, scope)
+    /** Stemify Connect: nearby devices control this phone, and this phone controls them. */
+    val connect = Connect(app, settings, playback, eq, plex, stems, scope).also { it.start() }
+    /** The player the screens drive: this phone's, or the nearby device's being controlled. */
+    val controls: Controls get() = connect.controls
 
     private companion object {
         /**

@@ -19,7 +19,8 @@ Rectangle {
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Txt { width: parent.width; text: mp.t.title || ""; style: "subhead"; weight: 500 }
-            Txt { width: parent.width; text: mp.t.artist || ""; style: "footnote"; color: Ios.label2 }
+            Txt { width: parent.width; text: nearby.active ? "Playing on " + nearby.targetName : mp.t.artist || ""; style: "footnote"
+                  color: nearby.active ? Ios.accent : Ios.label2 }
         }
         Item {
             width: 48; height: 48

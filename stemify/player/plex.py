@@ -39,6 +39,8 @@ def _track(m: dict) -> dict:
         "thumb": m.get("thumb") or m.get("parentThumb") or m.get("grandparentThumb") or "",
         "partFile": part.get("file", ""),
         "partKey": part.get("key", ""),
+        "partId": part.get("id") or 0,
+        "partSize": part.get("size") or 0,
         "codec": media.get("audioCodec", ""),
         "plays": m.get("viewCount") or 0,
         "addedAt": m.get("addedAt") or 0,

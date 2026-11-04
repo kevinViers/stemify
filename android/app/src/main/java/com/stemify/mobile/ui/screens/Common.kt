@@ -123,7 +123,7 @@ fun TrackRow(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val c = Ios.colors
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val current by pm.current.collectAsState()
     val playing by pm.playWhenReady.collectAsState()
     val isCurrent = current?.track?.ratingKey == track.ratingKey
@@ -356,8 +356,8 @@ class MediaMenu(private val overlays: Overlays, private val app: AppActions) {
 
     /** Front of the queue (right after this song) and the end of it. */
     private fun queueActions(load: suspend () -> List<Track>) = listOf(
-        SheetAction("Add to Front of Queue") { withTracks(load) { g.playback.playNext(it); overlays.hud("Playing Next", Sym.playNext) } },
-        SheetAction("Add to End of Queue") { withTracks(load) { g.playback.addToQueue(it); overlays.hud("Added to Queue", Sym.addQueue) } },
+        SheetAction("Add to Front of Queue") { withTracks(load) { g.controls.playNext(it); overlays.hud("Playing Next", Sym.playNext) } },
+        SheetAction("Add to End of Queue") { withTracks(load) { g.controls.addToQueue(it); overlays.hud("Added to Queue", Sym.addQueue) } },
     )
 
     /** Has stemd on the server separate the songs that lack stems ahead of the rest of the library. */

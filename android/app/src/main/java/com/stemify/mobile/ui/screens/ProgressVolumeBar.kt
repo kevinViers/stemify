@@ -62,11 +62,11 @@ import kotlin.math.sqrt
  */
 @Composable
 fun rememberPlaybackPosition(): State<Long> {
-    val pm = App.graph.playback
+    val pm = rememberControls()
     val pos = remember { mutableLongStateOf(pm.positionMs()) }
     val playing by pm.playWhenReady.collectAsState()
     val current by pm.current.collectAsState()
-    LaunchedEffect(playing, current) {
+    LaunchedEffect(playing, current, pm) {
         while (true) {
             if (playing) withFrameNanos { } else delay(200)
             pos.longValue = pm.positionMs()

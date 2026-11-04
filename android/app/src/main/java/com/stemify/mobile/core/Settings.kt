@@ -102,6 +102,12 @@ class Settings(context: Context) {
     val onlineLyrics = bool("onlineLyrics", true)
     val masterVolume = float("masterVolume", 0.85f)
 
+    /** Stemify Connect: nearby devices may control this phone (Wi-Fi ones once approved here). */
+    val connectEnabled = bool("connectEnabled", true)
+    val connectBluetooth = bool("connectBluetooth", true)
+    /** Wi-Fi controllers approved here, as a JSON object of id to name. */
+    val connectAllowed = string("connectAllowed", "{}")
+
     val clientId: String = prefs.getString("clientId", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("clientId", it).apply()
     }

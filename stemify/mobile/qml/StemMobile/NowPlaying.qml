@@ -205,17 +205,24 @@ Rectangle {
                 width: parent.width
                 height: 48
                 PanelToggle { icon: "sliders"; on: np.panel === "mixer"; pal: pal; tap: () => np.panel = np.panel === "mixer" ? "art" : "mixer" }
+                Item { width: 44; height: 1 }  // balances Play On, so the route stays centred
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Row {
                         anchors.centerIn: parent
                         spacing: 6
-                        Sym { name: np.deviceIcon(eq.output.kind); color: pal.label2; size: 16; anchors.verticalCenter: parent.verticalCenter }
-                        Txt { text: eq.output.label + np.eqLabel; style: "footnote"; weight: 500; color: pal.label2; anchors.verticalCenter: parent.verticalCenter }
+                        Sym { name: nearby.active ? "airplay" : np.deviceIcon(eq.output.kind); color: nearby.active ? pal.accent : pal.label2; size: 16
+                              anchors.verticalCenter: parent.verticalCenter }
+                        Txt { text: nearby.active ? nearby.targetName + (nearby.hasEq ? " · " + eq.output.label + np.eqLabel : "")
+                                                  : eq.output.label + np.eqLabel
+                              style: "footnote"; weight: 500; color: nearby.active ? pal.accent : pal.label2; anchors.verticalCenter: parent.verticalCenter
+                              elide: Text.ElideRight; width: Math.min(implicitWidth, np.width - 260) }
                     }
-                    Pressable { anchors.fill: parent; fade: true; tap: () => { if (np.close) np.close(); Ui.showInSettings("EqScreen") } }
+                    Pressable { anchors.fill: parent; fade: true
+                                tap: () => { if (nearby.active && !nearby.hasEq) { Ui.devices(); return } if (np.close) np.close(); Ui.showInSettings("EqScreen") } }
                 }
+                PanelToggle { icon: "airplay"; on: nearby.active || nearby.busy; pal: pal; tap: () => Ui.devices() }
                 PanelToggle { icon: "queue"; on: np.panel === "queue"; pal: pal; tap: () => np.panel = np.panel === "queue" ? "art" : "queue" }
             }
         }

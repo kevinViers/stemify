@@ -29,6 +29,9 @@ class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
     private val openNowPlaying = mutableIntStateOf(0)
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val bluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) App.graph.connect.onBluetoothPermission()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,9 +86,11 @@ class MainActivity : ComponentActivity() {
         // A connected controller keeps the session service bound, so playback starts it in the foreground.
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         App.graph.eq.refreshRoute()
+        App.graph.connect.askBluetoothPermission = { bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) }
     }
 
     override fun onStop() {
+        App.graph.connect.askBluetoothPermission = null
         controller?.let { MediaController.releaseFuture(it) }
         controller = null
         super.onStop()
