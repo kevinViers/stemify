@@ -409,7 +409,7 @@ function parse(rel) {
   const dot = file.lastIndexOf(".");
   const title = dot > 0 ? file.slice(0, dot) : file;
   let album = parts.pop() || "", disc = "";
-  if (/^(cd|disc|disk)\s*\d+$/i.test(album) && parts.length) { disc = album; album = parts.pop(); }
+  if ((/^(cd|disc|disk)\s*\d+$/i.test(album) || /\bvinyl\s*\d+$/i.test(album)) && parts.length) { disc = album; album = parts.pop(); }
   const artist = parts.pop() || "";
   return { title, album: disc ? `${album} (${disc})` : album, artist };
 }
