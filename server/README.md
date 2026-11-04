@@ -87,6 +87,7 @@ chown -R 99:100 /mnt/user/appdata/stemd
 docker build -f /mnt/user/appdata/stemd/src/server/stemd.Dockerfile -t stemd /mnt/user/appdata/stemd/src
 docker run -d --name stemd --restart unless-stopped --stop-timeout 60 \
   --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  -p 8766:8766 -l net.unraid.docker.webui='http://[IP]:[PORT:8766]/' \
   -v "/mnt/user/Music/Actual music/Flacs":/music:ro \
   -v /mnt/user/Music/Stems:/stems \
   -v /mnt/user/appdata/stemd/models:/models \
@@ -104,6 +105,27 @@ passes so the VRAM is free while idle. It can share the card with Plex transcodi
 VRAM runs out mid-track, that track is retried on the next pass rather than marked failed.
 Tracks that fail (corrupt files, over 40 minutes) are listed in `state/failed.json` and
 retried when the file changes; delete that file to retry them all.
+
+### The page
+
+stemd has a web page at `http://192.168.86.2:8766` (or **WebUI** on the container's icon in
+unraid's Docker tab), laid out like VLC's playlist window:
+
+- **Queue**: the song being separated (with its progress and album art), the Stem Now songs,
+  then the rest of the pass in the order they'll run. **Media Library**, **Stemmed**, **Not
+  Stemmed**, **Recently Stemmed** and **Failed & Skipped** list the whole library by status.
+- The play button pauses after the current song (and stays paused across restarts); stop
+  cancels the current song and pauses; next skips it (it comes round again next pass). The
+  loop button rescans the library now. The volume wedge is the GPU's load.
+- Double-click or Enter on a song separates it next. Right-click for **Add to Stem Queue**,
+  **Remove from Stem Now Queue**, **Don't Stem** (kept in `failed.json`, so it's left alone
+  until you **Allow Stemming** again), **Retry**, and **Re-stem** for a song that's done (for
+  instance one separated with an older model; the status column names it).
+- **Tools > Messages** (Ctrl+M) is the log, **Tools > Media Information** (Ctrl+I) a song's
+  stems and paths, **Tools > Preferences** the settings it's running with.
+
+Anyone on the LAN can use it. Set `UI_TOKEN` to require `?token=...` once per browser, or
+`UI_PORT=0` to turn it off.
 
 **Stem Now** (hold a song, album, artist or playlist in the app) jumps the queue: stemserve
 writes the request into `state/queue/`, and stemd separates those tracks next, after the
@@ -127,5 +149,7 @@ the app would briefly see no stems.
 | `RESCAN_MIN` | `30`             | minutes between scans once caught up                 |
 | `FP16`       | `1`              | half precision on the GPU (`0` for fp32)             |
 | `OVERLAP`, `SEGMENT`, `SHIFTS` | `0.25`, `0`, `0` | as in the desktop app's settings     |
+| `UI_PORT`    | `8766`           | the web page's port; `0` turns it off                |
+| `UI_TOKEN`   | empty            | if set, the page needs `?token=` once per browser    |
 
 `docker build --build-arg TORCH_INDEX=cpu ...` makes a small image without CUDA for testing.

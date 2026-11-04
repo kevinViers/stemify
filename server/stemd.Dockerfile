@@ -15,10 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
 COPY stemify/__init__.py stemify/catalog.py stemify/library_core.py /app/stemify/
 COPY stemify/worker/__init__.py stemify/worker/__main__.py stemify/worker/audio_io.py \
      stemify/worker/backends.py /app/stemify/worker/
-COPY server/stemd.py /app/server/
+COPY server/stemd.py server/stemd_web.py server/stemd_ui.html /app/server/
 ENV MUSIC_DIR=/music STEMS_DIR=/stems STATE_DIR=/state MODELS_DIR=/models \
     TORCH_HOME=/models/torch HF_HOME=/models/hf NUMBA_CACHE_DIR=/tmp/numba HOME=/tmp \
     PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONWARNINGS=ignore::FutureWarning
+# The web page (stemd_web.py).
+EXPOSE 8766
 # Unraid shares belong to nobody:users.
 USER 99:100
 CMD ["python", "/app/server/stemd.py"]
