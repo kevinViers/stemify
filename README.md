@@ -14,9 +14,9 @@ It's a home-grown, slightly over-engineered love letter to karaoke, music nerder
 pressing the "mute vocals" button at exactly the wrong moment.
 
 <p align="center">
-  <img src="docs/screenshots/mobile-album.png" width="250" alt="Physical Graffiti's album page">
-  <img src="docs/screenshots/mobile-now-playing.png" width="250" alt="Kashmir on Now Playing">
-  <img src="docs/screenshots/mobile-mixer.png" width="250" alt="Kashmir in the mixer, with Karaoke on">
+  <img src="docs/screenshots/phone-album.png" width="250" alt="Physical Graffiti's album page">
+  <img src="docs/screenshots/phone-now-playing.png" width="250" alt="Kashmir on Now Playing, in album colours">
+  <img src="docs/screenshots/phone-mixer.png" width="250" alt="Kashmir in the mixer, with Karaoke on">
 </p>
 <p align="center"><i>Kashmir, minus Robert Plant. Every screenshot in here is <b>Physical Graffiti</b>,
 because if you're going to hear one album a thousand times while testing, it should be this one.</i></p>
@@ -307,13 +307,19 @@ next, the mixer (faders, mute, solo, mix presets, meters, master volume), lyrics
 Your mix can carry over from song to song or reset each time, your choice.
 
 <p align="center">
-  <img src="docs/screenshots/mobile-queue.png" width="250" alt="The queue, Physical Graffiti's second disc">
-  <img src="docs/screenshots/mobile-now-playing-white.png" width="250" alt="Ten Years Gone, in album colours">
-  <img src="docs/screenshots/mobile-mixer-white.png" width="250" alt="The Rhythm mix: just John Paul Jones and Bonham">
+  <img src="docs/screenshots/phone-lyrics.png" width="250" alt="Kashmir's lyrics, filling in word by word">
+  <img src="docs/screenshots/phone-acappella.png" width="250" alt="The A Cappella mix: Robert Plant, alone">
+  <img src="docs/screenshots/phone-queue.png" width="250" alt="The queue, Physical Graffiti's second disc">
 </p>
-<p align="center"><i>The queue; Now Playing in the White theme with album colours on; and the Rhythm
-mix, for when you only want to hear John Paul Jones and Bonzo. (These are from Stemify Mobile,
-which is the phone app's screens on the desktop.)</i></p>
+<p align="center"><i>Lyrics filling in word by word ("The stor|y was quite clear"); A Cappella, for
+studying exactly how Robert Plant does that; and the rest of the album waiting its turn.</i></p>
+
+<p align="center">
+  <img src="docs/screenshots/phone-album-menu.png" width="250" alt="Holding an album: queue, download, playlist, Stem Now">
+  <img src="docs/screenshots/phone-quality.png" width="250" alt="Stem Quality: Lossless, High, Standard, Data Saver">
+  <img src="docs/screenshots/phone-crossfade.png" width="250" alt="Crossfade settings">
+</p>
+<p align="center"><i>Hold anything for the menu; Stem Quality; and Crossfade.</i></p>
 
 **Lyrics** come from Plex (LyricFind, or your own `.lrc` files) and then
 [LRCLIB](https://lrclib.net). Synced ones follow the song as it plays, and tapping a line jumps
@@ -376,12 +382,11 @@ It's two equalizers wearing one trench coat:
   frequency, gain and Q, on both channels or just left or right.
 
 <p align="center">
-  <img src="docs/screenshots/mobile-eq.png" width="250" alt="The Equalizer with a Bonham Mode profile">
-  <img src="docs/screenshots/mobile-eq-filters.png" width="250" alt="Bonham Mode's parametric filters">
-  <img src="docs/screenshots/mobile-crossfade.png" width="250" alt="The Crossfade settings">
+  <img src="docs/screenshots/phone-eq.png" width="250" alt="The Equalizer with a Small Speaker Tune profile for the phone speaker">
+  <img src="docs/screenshots/mobile-eq-filters.png" width="250" alt="A Bonham Mode profile's parametric filters">
 </p>
-<p align="center"><i>A "Bonham Mode" profile for the speakers, its four parametric filters, and
-Crossfade, which lives next door in Settings.</i></p>
+<p align="center"><i>The phone speaker's profile switching in automatically, and a "Bonham Mode"
+profile's parametric filters (that one's from Stemify Mobile on the desktop).</i></p>
 
 **Profiles follow your output device.** The phone speaker, wired headphones, each Bluetooth headset
 and each USB DAC can have their own profile, switched automatically the moment audio moves to it.
@@ -406,6 +411,10 @@ AutoEQ/APO format, how to EQ by ear, and a dozen recipes with before/after curve
 Designed for a 2016 Mazda MX-5 with the Mazda Connect retrofit: an 800×480 screen with touch
 disabled, driven entirely by the commander knob and the steering wheel buttons. If it works there,
 it'll work in your car.
+
+<p align="center"><img src="docs/screenshots/auto-now-playing.png" width="600" alt="In the Light on Android Auto, with the Karaoke mix on"></p>
+<p align="center"><i>The Mix button just went to Karaoke: the artist line says so, and the Vocals
+button is crossed out. The MX-5 is ready for a duet.</i></p>
 
 - **Four tabs:** Playlists, Albums, Artists, Downloads (Downloads comes first when you're away
   from home).
@@ -467,6 +476,12 @@ Content**.) Say yes once and it's remembered. Bluetooth devices don't ask, since
 who's allowed and who's connected right now. On the phone, Bluetooth needs the Nearby devices
 permission, which it asks for the first time you open Play On.
 
+<p align="center">
+  <img src="docs/screenshots/phone-play-on.png" width="250" alt="Play On, offering This Phone or a computer running Stemify Player">
+  <img src="docs/screenshots/phone-nearby.png" width="250" alt="Settings, Nearby Devices">
+</p>
+<p align="center"><i>The phone spotting Stemify Player on the desktop, and the Nearby Devices settings.</i></p>
+
 How it works, for the curious: devices find each other with a small UDP broadcast on port 47809,
 then talk JSON over TCP (port 47810) or Bluetooth RFCOMM. The protocol is written up in
 [`docs/CONNECT.md`](docs/CONNECT.md).
@@ -522,8 +537,14 @@ your queue, position and mix between launches. The full tour is in
 For when you'd rather your computer looked like your phone than like a spreadsheet. Every tab,
 page and sheet of the Android app, in a window: On This Day, the mixer and its meters, the
 waveform seek bar, Stem Now, playlists you can reorder, downloads, Stem Quality, crossfade, the
-Black / Dark / White themes and album-colour Now Playing. (Most of the phone screenshots in this
-README were taken in it.)
+Black / Dark / White themes and album-colour Now Playing.
+
+<p align="center">
+  <img src="docs/screenshots/mobile-now-playing-white.png" width="250" alt="Ten Years Gone in Stemify Mobile, White theme with album colours">
+  <img src="docs/screenshots/mobile-mixer-white.png" width="250" alt="The Rhythm mix: just John Paul Jones and Bonham">
+</p>
+<p align="center"><i>Stemify Mobile in the White theme, and the Rhythm mix, for when you only want
+to hear John Paul Jones and Bonzo.</i></p>
 
 - **The Equalizer** is the phone's, maths and all: 10 bands, parametric filters, APO / AutoEQ
   paste and copy, anti-clipping, and profiles that switch with the output (speakers, headphones,
