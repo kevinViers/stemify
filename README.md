@@ -13,6 +13,14 @@ live, on your phone, in your car, and on your desktop.
 It's a home-grown, slightly over-engineered love letter to karaoke, music nerdery and the joy of
 pressing the "mute vocals" button at exactly the wrong moment.
 
+<p align="center">
+  <img src="docs/screenshots/mobile-album.png" width="250" alt="Physical Graffiti's album page">
+  <img src="docs/screenshots/mobile-now-playing.png" width="250" alt="Kashmir on Now Playing">
+  <img src="docs/screenshots/mobile-mixer.png" width="250" alt="Kashmir in the mixer, with Karaoke on">
+</p>
+<p align="center"><i>Kashmir, minus Robert Plant. Every screenshot in here is <b>Physical Graffiti</b>,
+because if you're going to hear one album a thousand times while testing, it should be this one.</i></p>
+
 ---
 
 ## Contents
@@ -57,7 +65,8 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
 ```
 
 - **stemd** sits on the server and chews through your library on the GPU, one song at a time,
-  forever. New album? It notices within half an hour and gets to work.
+  forever. New album? It notices within half an hour and gets to work. It has a web page (on port
+  8766) where you can watch it work and boss it around.
 - **stemserve** hands the finished stems to your devices over HTTP, with seeking, waveforms and
   optional Opus transcodes so your phone storage doesn't cry.
 - **Plex** stays in charge of what it's good at: your library, metadata, artwork and playlists.
@@ -78,9 +87,13 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
 - A 10-band graphic EQ **plus** Equalizer APO-style parametric filters, with per-device profiles
   that switch automatically when you plug in headphones or connect to Bluetooth.
 - Paste in an AutoEQ correction for your headphones and you're done.
-- Downloads for offline listening, stems and all.
-- Gapless playback, a proper queue, playlists (create, reorder, rename), search, and "On This
-  Day" album birthdays on the home screen.
+- Downloads for offline listening, stems and all: whole albums or whole playlists, which keep up
+  with changes you make on the server.
+- Synced lyrics that follow along word by word, with a Vocals On / Guide / Off switch, so you can
+  do the singing and the app does the sulking.
+- Gapless playback, or a smart crossfade that actually listens to how songs end and begin.
+- A proper queue, playlists (create, reorder, rename), search, and "On This Day" album birthdays
+  on the home screen, using each album's *first* release date rather than the 2014 remaster's.
 - "Stem Now": jump any song, album, artist or playlist to the front of the separation queue.
 - An iOS-flavoured look in Black, Dark or White, at whatever refresh rate your panel can manage.
 
@@ -91,8 +104,9 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
 **On your desktop (Linux)**
 - **Stemify (the separator)**: drag a song onto the window, get stems out the other side, preview them in sync,
   export them. Material layout meets Windows 7 Aero glass, running at 240 Hz because why not.
-- **Stemify Player**: your Plex library and its stems, with full mixing... dressed up as
-  Microsoft Excel 2016. Yes, really. Your boss will think you're working on the quarterly numbers.
+- **Stemify Player**: your Plex library and its stems, with full mixing and a live spectrum for
+  every stem... dressed up as Microsoft Excel 2016. Yes, really. Your boss will think you're
+  working on the quarterly numbers.
 - **Stemify Mobile**: the phone app, on your desktop. Same screens, same mixer, same EQ (with
   profiles for your speakers, headphones and Bluetooth), same downloads.
 
@@ -103,7 +117,8 @@ the music folder.** If your song lives at `Kansas/Leftoverture/01 Carry On.flac`
 
 **On the server**
 - **stemd** separates everything automatically with BS-RoFormer SW (6 stems) on an NVIDIA GPU,
-  politely, at low priority, sharing the card with Plex transcodes.
+  politely, at low priority, sharing the card with Plex transcodes. Its web page, a loving
+  impression of VLC's playlist window, shows what it's doing and lets you reorder its life.
 - **stemserve** is one Python file using only the standard library. ffmpeg is optional.
 
 ---
@@ -135,6 +150,7 @@ at least `stemify/`, `server/` and `.dockerignore`) to `/mnt/user/appdata/stemd/
 docker build -f /mnt/user/appdata/stemd/src/server/stemd.Dockerfile -t stemd /mnt/user/appdata/stemd/src
 docker run -d --name stemd --restart unless-stopped --stop-timeout 60 \
   --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  -p 8766:8766 -l net.unraid.docker.webui='http://[IP]:[PORT:8766]/' \
   -v "/mnt/user/Music/Actual music/Flacs":/music:ro \
   -v /mnt/user/Music/Stems:/stems \
   -v /mnt/user/appdata/stemd/models:/models \
@@ -146,6 +162,30 @@ docker logs -f stemd
 The first song downloads the model (about 700 MB). After that the log reads like a very calm
 sports commentary: how many tracks are left, which one it's on, and how many times faster than
 realtime it went.
+
+**stemd's web page.** Reading logs is fine, but watching a progress bar is better. Open
+`http://192.168.86.2:8766` (or click **WebUI** on the container's icon in unraid's Docker tab) and
+you get stemd dressed up as VLC's playlist window, traffic cone and all:
+
+![stemd's page, separating Kashmir](docs/screenshots/stemd.png)
+
+- **Queue** shows the song being separated (with its art and progress), then any Stem Now
+  requests, then the rest of the pass in the order they'll run. **Media Library**, **Stemmed**,
+  **Not Stemmed**, **Recently Stemmed** and **Failed & Skipped** list the whole library by status,
+  and the search box finds anything.
+- **Play** pauses after the current song (and stays paused across restarts), **stop** cancels the
+  current song and pauses, **next** skips it, and the loop button rescans the library right now.
+  The volume wedge is the GPU's load, because of course it is.
+- **Double-click** a song (or press Enter) to separate it next. Right-click for **Add to Stem
+  Queue**, **Don't Stem** (for the comedy album nobody needs a karaoke version of), **Retry**,
+  and **Re-stem** (handy for songs separated with an older model; the status column says which).
+- **Tools → Messages** (Ctrl+M) is the log, **Tools → Media Information** (Ctrl+I) shows a song's
+  stems, sizes and paths, and **Tools → Preferences** shows the settings it's running with.
+
+<p align="center"><img src="docs/screenshots/stemd-info.png" width="562" alt="Media Information for Ten Years Gone"></p>
+
+Anyone on your network can use it. Set `UI_TOKEN` if that makes you nervous, or `UI_PORT=0` to
+turn it off.
 
 **stemserve** is tiny. Copy the `server/` folder to `/mnt/user/appdata/stemserve` and either use
 the included compose file:
@@ -190,6 +230,8 @@ If you see a happy little JSON blob with a track count, you're in business.
 | `RESCAN_MIN` | `30` | Minutes between library scans once it's caught up |
 | `FP16` | `1` | Half precision on the GPU (`0` for full fp32) |
 | `OVERLAP`, `SEGMENT`, `SHIFTS` | `0.25`, `0`, `0` | Separation quality knobs, same as the desktop app |
+| `UI_PORT` | `8766` | The web page's port (`0` turns it off) |
+| `UI_TOKEN` | empty | If set, the page needs `?token=...` once per browser |
 
 `docker build --build-arg TORCH_INDEX=cpu ...` makes a small GPU-less image for testing.
 
@@ -261,18 +303,43 @@ they're done. Those songs still play, just from the original file.
 - **Stem Now**, while any of it lacks stems
 
 **The Now Playing screen** has the waveform seek bar, 10-second skip buttons beside previous and
-next, the mixer (faders, mute, solo, mix presets, meters, master volume) and the queue. Your mix can carry over from song to song or reset each
-time, your choice.
+next, the mixer (faders, mute, solo, mix presets, meters, master volume), lyrics and the queue.
+Your mix can carry over from song to song or reset each time, your choice.
+
+<p align="center">
+  <img src="docs/screenshots/mobile-queue.png" width="250" alt="The queue, Physical Graffiti's second disc">
+  <img src="docs/screenshots/mobile-now-playing-white.png" width="250" alt="Ten Years Gone, in album colours">
+  <img src="docs/screenshots/mobile-mixer-white.png" width="250" alt="The Rhythm mix: just John Paul Jones and Bonham">
+</p>
+<p align="center"><i>The queue; Now Playing in the White theme with album colours on; and the Rhythm
+mix, for when you only want to hear John Paul Jones and Bonzo. (These are from Stemify Mobile,
+which is the phone app's screens on the desktop.)</i></p>
+
+**Lyrics** come from Plex (LyricFind, or your own `.lrc` files) and then
+[LRCLIB](https://lrclib.net). Synced ones follow the song as it plays, and tapping a line jumps
+there. Above them sits **Vocals On / Guide / Off**: Guide leaves the singer about 14 dB down, enough
+to follow but not enough to lean on. Lyrics are saved with your downloads, and Settings can turn
+off the LRCLIB lookup if you'd rather nothing left the house.
+
+**Crossfade** is in Settings. **Off** is gapless. **Smart** (Short, Medium or Long) listens to the
+end of one song and the start of the next: it skips the silence, crosses a fade-out over its own
+fade, and lets a quiet intro start under a cold ending. **Fixed** always overlaps by 1 to 12
+seconds. Songs played in order on an album stay gapless unless you turn on **Crossfade Within
+Albums**, because nobody wants a crossfade in the middle of a concept album.
 
 **Downloads** are proper offline copies: every stem fully fetched (or the original file for songs
-without stems). Sort by download order, artist or release date.
+without stems). Download whole albums or whole playlists (songs are kept once, however many of
+them want it, and downloaded playlists follow changes you make on the server). Every album shows
+its first release date, as `FEB.24.75`, and you can sort by download order, artist or release
+date, newest or oldest first. Lyrics come along too.
 
 **Stem Quality** decides how stems travel from the server: lossless FLAC, or Opus at a bitrate of
 your choosing, which takes roughly an eighth of the space and is transcoded and cached on the
 server.
 
-**Streaming** needs your home network (Plex and stemserve are plain HTTP on the LAN). Anything
-you've downloaded or already streamed plays anywhere.
+**Streaming** needs your home network (Plex and stemserve are plain HTTP on the LAN). Away from
+home the app notices quickly, browses from its cache and your downloads, and skips songs it
+can't reach instead of sulking. Anything you've downloaded or already streamed plays anywhere.
 
 ---
 
@@ -292,7 +359,8 @@ Here's what happens:
 Requests are handled oldest first and survive restarts. stemd matches the paths Plex reports to
 files in its own music folder by their artist/album/file tail, so it doesn't matter that Plex and
 stemd see the library under different mount points. Songs that failed before (corrupt files, or
-anything over 40 minutes) are skipped; delete `state/failed.json` to give them all another shot.
+anything over 40 minutes) are skipped; hit **Retry** on stemd's page, or delete `state/failed.json`
+to give them all another shot.
 
 ---
 
@@ -306,6 +374,14 @@ It's two equalizers wearing one trench coat:
 - **Parametric Filters**, modelled on [Equalizer APO](https://sourceforge.net/projects/equalizerapo/):
   peak, low/high shelf, low/high pass (6 to 48 dB/oct), band pass, notch and all pass, each with
   frequency, gain and Q, on both channels or just left or right.
+
+<p align="center">
+  <img src="docs/screenshots/mobile-eq.png" width="250" alt="The Equalizer with a Bonham Mode profile">
+  <img src="docs/screenshots/mobile-eq-filters.png" width="250" alt="Bonham Mode's parametric filters">
+  <img src="docs/screenshots/mobile-crossfade.png" width="250" alt="The Crossfade settings">
+</p>
+<p align="center"><i>A "Bonham Mode" profile for the speakers, its four parametric filters, and
+Crossfade, which lives next door in Settings.</i></p>
 
 **Profiles follow your output device.** The phone speaker, wired headphones, each Bluetooth headset
 and each USB DAC can have their own profile, switched automatically the moment audio moves to it.
@@ -341,6 +417,8 @@ it'll work in your car.
   line, e.g. "Black Sabbath · Karaoke".
 - **Voice:** hold the talk button and say "play Paranoid on Stemify". Playlists, artists,
   albums and songs all work.
+- **Downloads** lists your downloaded playlists first, then albums, each A to Z, and crossfade
+  works in the car just like on the phone.
 - **Offline:** away from home, the app quickly notices the server is unreachable and lists only
   songs that will actually play (downloaded or fully cached).
 
@@ -403,6 +481,8 @@ Drop files onto the window. Each becomes a queue item, separation starts right a
 last-used model and device, and when it's done you get a lane per stem with a waveform, solo, mute,
 gain and export. Export everything, one stem, or your current mix, as WAV, FLAC or MP3.
 
+![Stemify with Kashmir split six ways](docs/screenshots/separator.png)
+
 Other niceties:
 
 - Separation runs in its own worker process, so the UI never stutters, even mid-separation.
@@ -426,6 +506,13 @@ The desktop sibling of the phone app, disguised as Microsoft Excel 2016 in its B
 | Format task pane | Now playing, with the stems as a column chart you can drag |
 | `#GETTING_DATA` | A playlist loading from Plex |
 
+![Stemify Player playing Kashmir with Karaoke on](docs/screenshots/player.png)
+
+Under the stem chart sits **Spectrum**, a live frequency plot for each stem, redrawn every frame
+your monitor shows (so yes, at 240 Hz, Jimmy Page's guitar is a very busy orange smudge).
+Below that, the task pane has the mix style, Keep the mix for the next song, and **Crossfade**,
+with the same Off / Smart / Fixed choices as the phone.
+
 It reports plays to Plex, supports media keys and desktop media controls (MPRIS), and remembers
 your queue, position and mix between launches. The full tour is in
 [`stemify/player/README.md`](stemify/player/README.md).
@@ -434,8 +521,9 @@ your queue, position and mix between launches. The full tour is in
 
 For when you'd rather your computer looked like your phone than like a spreadsheet. Every tab,
 page and sheet of the Android app, in a window: On This Day, the mixer and its meters, the
-waveform seek bar, Stem Now, playlists you can reorder, downloads, Stem Quality, the Black /
-Dark / White themes and album-colour Now Playing.
+waveform seek bar, Stem Now, playlists you can reorder, downloads, Stem Quality, crossfade, the
+Black / Dark / White themes and album-colour Now Playing. (Most of the phone screenshots in this
+README were taken in it.)
 
 - **The Equalizer** is the phone's, maths and all: 10 bands, parametric filters, APO / AutoEQ
   paste and copy, anti-clipping, and profiles that switch with the output (speakers, headphones,
@@ -544,13 +632,16 @@ android/                 the Android and Android Auto app (Kotlin, Jetpack Compo
     playback/            queue, audio focus, mix presets, the Media3 session
     connect/             Nearby control: finding devices, being controlled, controlling others
     auto/                Android Auto browse tree, voice search, offline mode
+    lyrics/              Plex and LRCLIB lyrics, synced word by word
     ui/                  every screen, hand-built iOS-style components
 docs/
   EQUALIZER.md           the complete Equalizer guide
   CONNECT.md             the Nearby control protocol
   eq/                    its response graphs, and make_figures.py, which draws them from the app's EQ maths
+  screenshots/           the pictures in this README (all Physical Graffiti, all the time)
 server/
   stemd.py               the GPU separation daemon
+  stemd_web.py, stemd_ui.html   its VLC-shaped web page
   stemserve.py           the stem file server (standard library only)
   *.Dockerfile, docker-compose.yml
 stemify/              the desktop separator (PySide6 + QML) and shared separation code
@@ -559,7 +650,10 @@ stemify/              the desktop separator (PySide6 + QML) and shared separatio
   mobile/                Stemify Mobile, the phone app on the desktop: its screens in QML, the EQ, downloads
   connect/               Nearby control for the desktop apps (receiver, controller, Wi-Fi and Bluetooth)
   library_core.py        the folder layout rules shared with stemd
-scripts/install-desktop.sh
+scripts/
+  install-desktop.sh     adds the desktop apps to your app grid
+  connect_selftest.py    Nearby control, end to end, on one computer
+stemSlider/PLAN.md       plans for a palm-sized box of real faders, one per stem
 specs.txt                the original design doc for the desktop separator
 ```
 
@@ -592,9 +686,15 @@ another machine, and if you set a `TOKEN` on the server, set the same one in the
 Sideloaded apps need **Unknown sources** turned on in Auto's developer settings. See
 [setting up the car](#android-auto).
 
+**What is stemd doing right now?**
+Open its page on port 8766. It shows the current song with a progress bar, what's next, and the
+log under Tools → Messages. You can pause it there too, if the GPU is needed for something less
+important, like Plex.
+
 **Some songs are marked failed in `state/failed.json`.**
 Usually corrupt files, or "songs" over 40 minutes (those are almost always DJ mixes or radio rips).
-Failed tracks retry automatically when the file changes; delete the file to retry everything.
+Failed tracks retry automatically when the file changes. To retry sooner, open **Failed &
+Skipped** on stemd's page and choose **Retry**, or delete the file to retry everything.
 
 **Play On doesn't find my other device.**
 Both need Stemify open with **Allow Control from Nearby Devices** on, and to be on the same network
