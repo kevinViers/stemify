@@ -712,23 +712,7 @@ class Player(QObject):
         return PRESETS[i][0] if i >= 0 else "Custom Mix"
 
     def _get_wave(self):
-        """0..1 loudness per bucket for the current mix: stems weighted by their faders."""
-        w = self._wave_raw
-        if not w:
-            return []
-        if "stems" in w:
-            any_solo = any(_setting(self.mix, n)[2] for n in self.names)
-            gains = {}
-            for n in w["stems"]:
-                level, muted, solo = _setting(self.mix, n)
-                gains[n] = 0.0 if (any_solo and not solo) or muted else stem_taper(level)
-            size = max(len(a) for a in w["stems"].values())
-            out = []
-            for i in range(size):
-                e = sum((a[i] if i < len(a) else 0.0) ** 2 * gains.get(n, 1.0) ** 2 for n, a in w["stems"].items())
-                out.append(_norm_db(20 * math.log10(math.sqrt(e) + 1e-6)))
-            return out
-        return [_norm_db(v) for v in w["db"]]
+        return wave_bars(self._wave_raw, self.mix, self.names)
 
     def _get_queue_info(self):
         return {"index": self.index, "count": len(self.queue)}
@@ -781,6 +765,26 @@ class Player(QObject):
         self.crossfadeChanged.emit()
         self.replan()
         self._save_soon()
+
+
+def wave_bars(w, mix, names):
+    """0..1 loudness per bucket for the current mix: stems weighted by their faders.
+    w is {"stems": {name: [..]}} or {"db": [..]} (or None)."""
+    if not w:
+        return []
+    if "stems" in w:
+        any_solo = any(_setting(mix, n)[2] for n in names)
+        gains = {}
+        for n in w["stems"]:
+            level, muted, solo = _setting(mix, n)
+            gains[n] = 0.0 if (any_solo and not solo) or muted else stem_taper(level)
+        size = max((len(a) for a in w["stems"].values()), default=0)
+        out = []
+        for i in range(size):
+            e = sum((a[i] if i < len(a) else 0.0) ** 2 * gains.get(n, 1.0) ** 2 for n, a in w["stems"].items())
+            out.append(_norm_db(20 * math.log10(math.sqrt(e) + 1e-6)))
+        return out
+    return [_norm_db(v) for v in w["db"]]
 
 
 def _norm_db(db):

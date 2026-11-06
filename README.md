@@ -450,7 +450,7 @@ adb forward tcp:5277 tcp:5277
 
 Your phone can be the remote for the computer hooked up to the good speakers, and the computer can
 be the remote for the phone plugged into the car stereo. Every Stemify app can be controlled from
-nearby, and the phone app and Stemify Mobile can do the controlling.
+nearby, and every one of them can do the controlling too.
 
 **To control another device**, open Now Playing and tap the **Play On** button (the AirPlay-looking
 one beside the queue). Devices running Stemify on the same Wi-Fi show up within a second or two;
@@ -465,7 +465,14 @@ is a remote for it:
   Keep Stem Mix Between Songs
 
 The mini player says **Playing on ...**, and the route line under the transport turns into the
-device's name. Pick **This Phone** (or **This Computer**) to go back. While you're controlling one,
+device's name. Pick **This Phone** (or **This Computer**) to go back.
+
+**In Stemify Player**, it's the **Play On** button at the right end of the ribbon tabs, where Excel
+keeps Share (or **Data → Play On**). While it's connected, a yellow **PLAYING ON ...** bar sits
+under the ribbon, and the ribbon, the mixer pane, the Queue sheet, every Play button, the status
+bar volume and your media keys all drive the other device. **Disconnect** on that bar (or
+**This Computer** in the list) brings it home. The only thing that stays behind is the Spectrum
+chart, which shows `#N/A` until you're playing locally again. While you're controlling one,
 **Move "..." Here** sends what this device was playing over, at the same moment and with the same mix.
 
 **The first time a device on your Wi-Fi tries**, the one being controlled asks: "Allow Pixel 10 to

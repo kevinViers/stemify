@@ -40,6 +40,7 @@ Window {
         function onToast(msg) { messages.show(msg) }
     }
     Connections { target: player; function onToast(msg) { messages.show(msg) } }
+    Connections { target: nearby; function onHud(msg, kind) { if (msg) messages.show(msg) } }
     Connections {
         target: sheetModel
         function onModelReset() {
@@ -63,6 +64,7 @@ Window {
     function setOption(k, v) { win[k] = v; settings.set(k, v) }
     function setZoom(z) { zoom = Math.max(50, Math.min(200, z)); settings.set("zoom", zoom) }
 
+    function openPlayOn() { playOn.open() }
     function openBackstage(page) { backstage.page = page; backstage.visible = true }
     function closeBackstage() { backstage.visible = false; focusGrid() }
     function focusGrid() { grid.forceActiveFocus() }
@@ -117,6 +119,7 @@ Window {
         Ribbon { id: ribbon; width: parent.width }
         MessageBar { id: messages; width: parent.width }
         SecurityBar { width: parent.width }
+        RemoteBar { width: parent.width; onOpenPicker: win.openPlayOn() }
         FormulaBar { width: parent.width }
         Item {
             width: parent.width
@@ -145,6 +148,14 @@ Window {
         y: 32
         width: parent.width
         height: parent.height - y
+    }
+
+    // Play On: drops down from the button at the right of the tab strip
+    PlayOnPane {
+        id: playOn
+        x: win.width - width - 6
+        y: 32 + 28
+        onClosed: win.focusGrid()
     }
 
     // New Playlist: an Office dialog

@@ -7,7 +7,9 @@ Ico 1.0 Ico.qml
 Main 1.0 Main.qml
 MessageBar 1.0 MessageBar.qml
 OfficeButton 1.0 OfficeButton.qml
+PlayOnPane 1.0 PlayOnPane.qml
 RButton 1.0 RButton.qml
+RemoteBar 1.0 RemoteBar.qml
 ResizeEdge 1.0 ResizeEdge.qml
 RGroup 1.0 RGroup.qml
 Ribbon 1.0 Ribbon.qml

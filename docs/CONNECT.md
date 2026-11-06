@@ -1,9 +1,11 @@
 # Stemify Connect: the nearby control protocol
 
 Every Stemify player (Android, Stemify Mobile, Stemify Player) is a **receiver**: other devices
-nearby can find it and drive it. Android and Stemify Mobile are also **controllers**: pick a
-device in Now Playing and the app's own screens (transport, seek bar, mixer, queue, EQ,
-crossfade, and every Play button in the library) act on that device instead of this one.
+nearby can find it and drive it. They are all **controllers** too: pick a device in Now Playing
+(Stemify Player: **Play On** at the right of the ribbon tabs, or **Data → Play On**) and the app's
+own screens (transport, seek bar, mixer, queue, EQ, crossfade, and every Play button in the
+library) act on that device instead of this one. Stemify Player has no EQ screen, so it leaves
+the other device's EQ alone, and its spectrum chart stays local (spectra aren't on the wire).
 
 ## Transports
 

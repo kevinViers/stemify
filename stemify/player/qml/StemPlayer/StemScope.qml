@@ -37,6 +37,18 @@ Rectangle {
         color: X.chartText
     }
 
+    T {
+        visible: nearby.active
+        anchors.centerIn: plot
+        width: plot.width
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        font.family: cellFont
+        font.pixelSize: 12
+        color: X.chartText
+        text: "#N/A — the spectrum is only drawn for songs playing on this computer"
+    }
+
     Item {
         id: plot
         x: 52

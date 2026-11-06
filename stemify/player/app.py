@@ -63,12 +63,17 @@ def main():
     player.library = library
     library.update_queue()
 
-    # Nearby devices can drive this player (Stemify Connect, docs/CONNECT.md).
+    # Stemify Connect (docs/CONNECT.md): nearby devices can drive this player, and this app can
+    # drive theirs.
+    from ..connect.controller import Nearby
+    from ..connect.discovery import Beacon
     from ..connect.protocol import device_name, ensure_id
     from ..connect.receiver import Receiver
+    from .remote import SheetRemoteEngine, SheetRemotePlayer
     identity = {"id": ensure_id(cfg), "name": device_name("Stemify Player"), "app": "player"}
     config.save(cfg)
-    receiver = Receiver(cfg, identity, player, engine, save=lambda: config.save(cfg))
+    beacon = Beacon(identity)
+    receiver = Receiver(cfg, identity, player, engine, save=lambda: config.save(cfg), beacon=beacon)
 
     qml = QQmlApplicationEngine()
     qml.addImageProvider("icon", IconProvider())
@@ -79,6 +84,20 @@ def main():
     ctx.setContextProperty("player", player)
     ctx.setContextProperty("engine", engine)
     ctx.setContextProperty("receiver", receiver)
+    mpris = None
+
+    def make_remote(session, caps):
+        rp = SheetRemotePlayer(session, plex, library, session)
+        return rp, SheetRemoteEngine(rp, session, session), None
+
+    def on_swap(p, e):
+        """The library (Play buttons, the Queue sheet) and the media keys follow the screens."""
+        library.player = p
+        library.update_queue()
+        if mpris is not None:
+            mpris.attach(p, e)
+    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine}, make_remote, on_swap)
+    ctx.setContextProperty("nearby", nearby)
     settings = _Settings(cfg)
     ctx.setContextProperty("settings", settings)
     ctx.setContextProperty("uiFont", ui_font)
@@ -113,6 +132,7 @@ def main():
     keepalive.timeout.connect(lambda: None)
 
     def shutdown():
+        nearby.shutdown()
         receiver.shutdown()
         player.shutdown()
         engine.shutdown()

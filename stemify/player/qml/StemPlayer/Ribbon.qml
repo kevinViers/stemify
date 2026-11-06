@@ -13,6 +13,28 @@ Column {
         width: parent.width
         height: 28
         color: X.green
+        // where Excel puts "Share": play on a nearby device
+        Item {
+            id: playOnBtn
+            anchors.right: parent.right
+            width: pr.implicitWidth + 24
+            height: parent.height
+            Rectangle { anchors.fill: parent; color: pm.pressed ? X.greenDark : pm.containsMouse || nearby.active ? X.greenHover : "transparent" }
+            Row {
+                id: pr
+                anchors.centerIn: parent
+                spacing: 6
+                Ico { anchors.verticalCenter: parent.verticalCenter; name: "play_on"; ink: "#FFFFFF"; size: 16 }
+                T {
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: "#FFFFFF"
+                    width: Math.min(implicitWidth, 200)
+                    text: nearby.active ? "Playing on " + nearby.targetName : nearby.busy ? "Connecting…" : "Play On"
+                }
+            }
+            MouseArea { id: pm; anchors.fill: parent; hoverEnabled: true; onClicked: rib.win.openPlayOn() }
+            Tip { target: pm; text: "Play on a nearby phone or computer" }
+        }
         Row {
             x: 0
             height: parent.height
@@ -219,6 +241,26 @@ Column {
                 title: "Get External Data"
                 RButton { big: true; icon: "plex"; text: library.signedIn ? "Plex\nAccount" : "Connect\nto Plex"; onClicked: rib.win.openBackstage("account") }
                 RButton { big: true; icon: "server"; text: "Connections"; tip: "Server addresses and folders"; onClicked: rib.win.openBackstage("options") }
+            }
+            RGroup {
+                title: "Nearby"
+                RButton {
+                    big: true
+                    icon: "play_on"
+                    text: "Play\nOn"
+                    dropdown: true
+                    checked: nearby.active
+                    tip: "Control Stemify on a nearby phone or computer"
+                    onClicked: rib.win.openPlayOn()
+                }
+                RButton {
+                    big: true
+                    icon: "disconnect"
+                    text: "Dis-\nconnect"
+                    enabled: nearby.active || nearby.busy
+                    tip: "Back to playing on this computer"
+                    onClicked: nearby.leave()
+                }
             }
             RGroup {
                 title: "Connections"

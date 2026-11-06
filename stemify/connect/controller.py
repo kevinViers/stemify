@@ -1,5 +1,5 @@
-"""Controlling another device from Stemify Mobile: the device list, the connection, and
-swapping the screens' player, engine and EQ for remote stand-ins while it lasts."""
+"""Controlling another device from Stemify Mobile or Stemify Player: the device list, the
+connection, and swapping the screens' player, engine and EQ for remote stand-ins while it lasts."""
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 from PySide6.QtNetwork import QTcpSocket
@@ -21,10 +21,15 @@ class Nearby(QObject):
     localChanged = Signal()
     hud = Signal(str, str)
 
-    def __init__(self, cfg, identity, beacon, ctx, local, parent=None):
-        """local: {"player", "engine", "eq"}, the objects the screens normally see."""
+    def __init__(self, cfg, identity, beacon, ctx, local, make_remote=None, on_swap=None, parent=None):
+        """local: {"player", "engine", "eq"?}, the objects the screens normally see.
+        make_remote(session, caps) -> (player, engine, eq or None): the stand-ins while connected
+        (Stemify Mobile's by default). on_swap(player, engine) runs whenever the screens switch
+        between the local objects and the stand-ins, for whatever else holds the player."""
         super().__init__(parent)
         self.cfg, self.identity, self.beacon, self.ctx, self.local = cfg, identity, beacon, ctx, local
+        self._make_remote = make_remote or _mobile_remote
+        self._on_swap = on_swap
         self.scanner = bt.BtScanner(identity, self)
         self.scanner.found.connect(self._bt_found)
         self.scanner.finished.connect(self._bt_done)
@@ -152,9 +157,9 @@ class Nearby(QObject):
 
     def _go_remote(self):
         self.session = RemoteSession(self.link, self)
-        player = RemotePlayer(self.session, self)
-        engine = RemoteEngine(player, self.session, self)
-        eq = RemoteEq(self.session) if "eq" in self.caps else None
+        player, engine, eq = self._make_remote(self.session, self.caps)
+        if self.local.get("eq") is None:
+            eq = None  # this app has no EQ screens
         self.remote = (player, engine, eq)
         lp = self.local["player"]
         if lp.engine.playing:
@@ -163,6 +168,8 @@ class Nearby(QObject):
         self.ctx.setContextProperty("engine", engine)
         if eq is not None:
             self.ctx.setContextProperty("eq", eq)
+        if self._on_swap:
+            self._on_swap(player, engine)
         self.link.send({"t": "meters", "on": True})
         self._set_status("connected")
 
@@ -171,7 +178,10 @@ class Nearby(QObject):
             return
         self.ctx.setContextProperty("player", self.local["player"])
         self.ctx.setContextProperty("engine", self.local["engine"])
-        self.ctx.setContextProperty("eq", self.local["eq"])
+        if self.local.get("eq") is not None:
+            self.ctx.setContextProperty("eq", self.local["eq"])
+        if self._on_swap:
+            self._on_swap(self.local["player"], self.local["engine"])
         for o in self.remote:
             if o is not None:
                 o.deleteLater()
@@ -254,3 +264,10 @@ class Nearby(QObject):
 
     def shutdown(self):
         self.leave()
+
+
+def _mobile_remote(session, caps):
+    player = RemotePlayer(session, session)
+    engine = RemoteEngine(player, session, session)
+    eq = RemoteEq(session) if "eq" in caps else None
+    return player, engine, eq

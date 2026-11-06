@@ -116,10 +116,24 @@ class Mpris(QObject):
         self.ok = self.bus.isConnected() and self.bus.registerObject(PATH, self) and \
             self.bus.registerService("org.mpris.MediaPlayer2." + desktop_entry.replace("-", "_"))
         self._last = {}
-        player.changed.connect(self._changed)
-        player.mixChanged.connect(self._changed)
-        engine.volumeChanged.connect(self._changed)
-        engine.playingChanged.connect(self._changed)
+        self._wire(True)
+
+    def _wire(self, on):
+        for sig in (self.player.changed, self.player.mixChanged, self.engine.volumeChanged, self.engine.playingChanged):
+            if on:
+                sig.connect(self._changed)
+            else:
+                try:
+                    sig.disconnect(self._changed)
+                except (RuntimeError, TypeError):
+                    pass
+
+    def attach(self, player, engine):
+        """Media keys and the desktop's controls follow another player (a nearby device's stand-in)."""
+        self._wire(False)
+        self.player, self.engine = player, engine
+        self._wire(True)
+        self._changed()
 
     def metadata(self):
         t = self.player.current()

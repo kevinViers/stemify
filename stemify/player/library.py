@@ -379,7 +379,8 @@ class Library(QObject):
     # ---- queue sheet ------------------------------------------------------------------
     def update_queue(self):
         q = self._tabs[5]
-        q.rows = [dict(self._song_rows([t])[0], pos=i + 1) for i, t in enumerate(self.player.queue)]
+        first = getattr(self.player, "queue_offset", 0) + 1  # a remote device's queue arrives as a window
+        q.rows = [dict(self._song_rows([t])[0], pos=first + i) for i, t in enumerate(self.player.queue)]
         if self._current == 5:
             self.model.refresh()
         self.model.set_playing(self.player.current_key(), self.player.index)

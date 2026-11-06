@@ -81,6 +81,10 @@ ICONS = {
     "page_view": '<path fill="none" stroke="{ink}" stroke-width="2" d="M5 4h22v24H5z"/><path fill="{ink}" d="M9 9h14v2H9zM9 14h14v2H9zM9 19h9v2H9z"/>',
     "break_view": '<path fill="none" stroke="{ink}" stroke-width="2" d="M5 4h22v24H5z"/><path stroke="{ink}" stroke-width="2" stroke-dasharray="3 2" d="M16 4v24M5 16h22"/>',
     "function": '<text x="3" y="24" font-family="Times New Roman" font-style="italic" font-size="22" fill="{ink}">fx</text>',
+    "play_on": f'<rect fill="none" stroke="{{ink}}" stroke-width="2" x="2" y="6" width="20" height="14" rx="1"/><path fill="{{ink}}" d="M0 22h24v2.5H0z"/><rect fill="{GREEN}" x="20" y="11" width="10" height="17" rx="1.6"/><path fill="#FFFFFF" d="M22 13.5h6v11h-6z"/>',
+    "desktop": '<rect fill="none" stroke="{ink}" stroke-width="2.2" x="3" y="5" width="26" height="17" rx="1"/><path fill="{ink}" d="M13 22h6v4h-6zM9 26h14v2.2H9z"/>',
+    "phone": '<rect fill="none" stroke="{ink}" stroke-width="2.2" x="9" y="3" width="14" height="26" rx="2.2"/><path fill="{ink}" d="M14 24.5h4v2h-4z"/>',
+    "disconnect": f'<path fill="none" stroke="{{ink}}" stroke-width="2.4" d="M5 16h7M20 16h7"/><path fill="{{ink}}" d="M11 10h4v12h-4zM17 10h4v12h-4z"/><path stroke="{RED}" stroke-width="2.6" d="M8 27L24 5"/>',
     "check": f'<path fill="none" stroke="{GREEN}" stroke-width="3" d="M6 16l7 7 13-14"/>',
     "cancel": f'<path stroke="{RED}" stroke-width="3" d="M8 8l16 16M24 8L8 24"/>',
 }
