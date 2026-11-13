@@ -22,6 +22,7 @@ stemify = "stemify.app:main"
 stemify-worker-cli = "stemify.worker.cli:main"
 stemify-player = "stemify.player.app:main"
 stemify-mobile = "stemify.mobile.app:main"
+stemify-live = "stemify.live.__main__:main"
 
 [tool.uv]
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
