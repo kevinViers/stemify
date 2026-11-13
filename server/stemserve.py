@@ -22,6 +22,7 @@ Endpoints (all GET unless noted; add ?token=... or X-Stem-Token when TOKEN is se
 
 import email.utils
 import hashlib
+import hmac
 import json
 import operator
 import os
@@ -252,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self, query):
         if not TOKEN:
             return True
-        return TOKEN in (self.headers.get("X-Stem-Token"), query.get("token", [None])[0])
+        given = self.headers.get("X-Stem-Token") or query.get("token", [""])[0]
+        return hmac.compare_digest(given.encode(), TOKEN.encode())
 
     def _send(self, status, body=b"", ctype="application/json", headers=None):
         self.send_response(status)
@@ -272,8 +274,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.do_GET()
+        if not self._body_read and self.headers.get("Content-Length") not in (None, "0"):
+            self.close_connection = True  # an unread body would be taken for the next request
 
     def do_GET(self):
+        self._body_read = False
         url = urllib.parse.urlsplit(self.path)
         query = urllib.parse.parse_qs(url.query)
         path = urllib.parse.unquote(url.path)
@@ -324,7 +329,10 @@ class Handler(BaseHTTPRequestHandler):
         entry = self._entry(query)
         if entry is None:
             return
-        n = max(16, min(4096, int((query.get("n") or ["512"])[0])))
+        try:
+            n = max(16, min(4096, int((query.get("n") or ["512"])[0])))
+        except ValueError:
+            return self._error(400, "n must be a number")
         self._send(200, peaks(entry, n), headers={"Cache-Control": "max-age=86400"})
 
     def _prepare(self, query):
@@ -343,12 +351,18 @@ class Handler(BaseHTTPRequestHandler):
         """Hands a list of Plex file paths to stemd, which separates them before the rest."""
         if self.command != "POST":
             return self._error(405, "POST a JSON body: {\"paths\": [...]}")
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            return self._error(400, "bad Content-Length")
         if n > MAX_BODY:
-            self.close_connection = True
             return self._error(413, "too many paths")
         try:
-            paths = json.loads(self.rfile.read(n) or b"{}").get("paths")
+            body = self.rfile.read(n)
+            self._body_read = True
+            paths = json.loads(body or b"{}").get("paths")
         except (ValueError, AttributeError):
             paths = None
         if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
@@ -411,15 +425,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command == "HEAD":
             return
-        with open(path, "rb") as f:
-            f.seek(start)
-            left = length
-            while left > 0:
-                buf = f.read(min(CHUNK, left))
-                if not buf:
-                    break
-                self.wfile.write(buf)
-                left -= len(buf)
+        # The headers have gone out, so nothing that fails from here on can be reported: a
+        # second response would land in the middle of the body. Drop the connection instead.
+        left = length
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                while left > 0:
+                    buf = f.read(min(CHUNK, left))
+                    if not buf:
+                        break
+                    self.wfile.write(buf)
+                    left -= len(buf)
+        except OSError as e:
+            if not isinstance(e, (BrokenPipeError, ConnectionResetError)):
+                log("error", self.path, repr(e))
+        if left:
+            self.close_connection = True
 
 
 def _format(query):

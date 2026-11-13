@@ -609,7 +609,11 @@ def track_actions(failed):
             src = local(rel)
             if not src or done_info(dest_for(src)):
                 continue
-            failed.add(src, signature(src), EXCLUDED, user=True)
+            try:
+                sig = signature(src)
+            except OSError:
+                continue
+            failed.add(src, sig, EXCLUDED, user=True)
             STATE.set_track(rel, s="skip", e=EXCLUDED)
             n += 1
         unqueue(rels)

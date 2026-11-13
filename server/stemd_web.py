@@ -12,10 +12,13 @@ Standard library only. stemd keeps a State up to date as it works; serve() answe
   GET  /api/art?rel=R          the album's cover (a picture in its folder, or the file's own)
   POST /api/control            {"action": "pause"|"resume"|"stop"|"skip"|"rescan"}
   POST /api/tracks             {"action": "next"|"enqueue"|"unqueue"|"exclude"|"retry"|"restem", "rels": [...]}
+
+POSTs must be sent as Content-Type: application/json.
 """
 
 import collections
 import gzip
+import hmac
 import json
 import os
 import shutil
@@ -206,14 +209,17 @@ def serve(state, actions, port, token=""):
         def _authorized(self, query):
             if not token:
                 return True
-            if self.headers.get("X-Stem-Token") == token or query.get("token", [""])[0] == token:
-                return True
             cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
-            return cookies.get("stemd_token") == token
+            given = (self.headers.get("X-Stem-Token"), query.get("token", [""])[0], cookies.get("stemd_token"))
+            return any(hmac.compare_digest(g.encode(), token.encode()) for g in given if g)
 
         def _body(self):
+            # A page on another site can make the browser POST here, but not with this type
+            # (that needs a preflight this server never answers), so it can't press the buttons.
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                raise ValueError("expected Content-Type: application/json")
             n = int(self.headers.get("Content-Length") or 0)
-            if n > MAX_BODY:
+            if not 0 <= n <= MAX_BODY:
                 raise ValueError("request too large")
             data = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(data, dict):
@@ -239,7 +245,10 @@ def serve(state, actions, port, token=""):
                 if url.path == "/api/library":
                     return self._library(q.get("rev", [""])[0])
                 if url.path == "/api/log":
-                    after = int(q.get("after", ["0"])[0] or 0)
+                    try:
+                        after = int(q.get("after", ["0"])[0] or 0)
+                    except ValueError:
+                        return self._error(400, "after must be a number")
                     with state.lock:
                         lines = [list(x) for x in state.lines if x[0] > after]
                         return self._send(200, {"seq": state.seq, "lines": lines})
@@ -264,24 +273,32 @@ def serve(state, actions, port, token=""):
             try:
                 body = self._body()
             except ValueError as e:
+                self.close_connection = True  # the body may not have been read
                 return self._error(400, str(e))
             action = body.get("action")
-            if url.path == "/api/control":
-                if action not in ("pause", "resume", "stop", "skip", "rescan"):
-                    return self._error(400, "unknown action")
-                return self._send(200, actions["control"](action))
-            if url.path == "/api/tracks":
-                rels = body.get("rels")
-                if not isinstance(rels, list) or not all(isinstance(r, str) for r in rels):
-                    return self._error(400, "expected {\"action\": ..., \"rels\": [...]}")
-                fn = actions.get("tracks:" + str(action))
-                if fn is None:
-                    return self._error(400, "unknown action")
-                result = fn(rels)
-                state.changed()
-                state.wake.set()
-                return self._send(200, result)
-            return self._error(404, "not found")
+            try:
+                if url.path == "/api/control":
+                    if action not in ("pause", "resume", "stop", "skip", "rescan"):
+                        return self._error(400, "unknown action")
+                    return self._send(200, actions["control"](action))
+                if url.path == "/api/tracks":
+                    rels = body.get("rels")
+                    if not isinstance(rels, list) or not all(isinstance(r, str) for r in rels):
+                        return self._error(400, "expected {\"action\": ..., \"rels\": [...]}")
+                    fn = actions.get("tracks:" + str(action))
+                    if fn is None:
+                        return self._error(400, "unknown action")
+                    try:
+                        result = fn(rels)
+                    finally:  # it may have got part of the way
+                        state.changed()
+                        state.wake.set()
+                    return self._send(200, result)
+                return self._error(404, "not found")
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except OSError as e:  # the queue or state folder, say; tell the page rather than hang up
+                return self._error(500, str(e) or e.__class__.__name__)
 
         def _state(self):
             poll_queue()
