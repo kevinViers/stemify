@@ -348,6 +348,7 @@ class PlaybackManager(
         _repeat.value = mode
         requeueNext()
         changed()
+        save()
     }
 
     // ---- transport ----------------------------------------------------------------------
@@ -367,6 +368,7 @@ class PlaybackManager(
     }
 
     override fun pause() {
+        resumeOnGain = false  // paused by hand during a call or a navigation prompt: stay paused after it
         _playWhenReady.value = false
         engine.setPlaying(false)
         holdLocks(false)
@@ -793,6 +795,7 @@ class PlaybackManager(
         loadWaveform(item.track, currentEntry)
         reportTimeline("playing")
         prepareNext()
+        if (_playWhenReady.value) holdLocks(true)
         changed()
         save()
     }
@@ -855,7 +858,11 @@ class PlaybackManager(
         .setOnAudioFocusChangeListener({ change ->
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS -> { resumeOnGain = false; pause() }
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> { resumeOnGain = _playWhenReady.value; pause() }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    val wasPlaying = _playWhenReady.value
+                    pause()
+                    resumeOnGain = wasPlaying
+                }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> { duck = 0.25f; setMaster(_master.value) }
                 AudioManager.AUDIOFOCUS_GAIN -> {
                     duck = 1f
@@ -884,7 +891,9 @@ class PlaybackManager(
 
     private fun holdLocks(on: Boolean) {
         if (on) {
-            if (!wakeLock.isHeld) wakeLock.acquire(4 * 60 * 60 * 1000L)
+            // Taken again at every song (it isn't reference counted, so that just restarts its
+            // timeout): a long gapless run would otherwise outlive it and stall with the screen off.
+            wakeLock.acquire(4 * 60 * 60 * 1000L)
             if (!wifiLock.isHeld) wifiLock.acquire()
             if (noisyRegistered.compareAndSet(false, true)) {
                 context.registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_NOT_EXPORTED)

@@ -126,6 +126,24 @@ class DspTest {
         assertEquals(null, ApoConfig.parse("hello"))
     }
 
+    @Test fun nonsenseNumbersNeverReachTheAudio() {
+        // "NaN" and "Infinity" parse as floats; a zero-octave bandwidth has no Q.
+        val r = ApoConfig.parse("Filter 1: ON PK Fc NaN Hz Gain 3 dB Q 1\nFilter 2: ON PK Fc 1000 Hz Gain Infinity dB BW Oct 0\nPreamp: NaN dB")!!
+        assertEquals(1, r.filters.size)
+        assertTrue(r.filters.all { it.freq.isFinite() && it.gain.isFinite() && it.q.isFinite() })
+        assertEquals(null, r.preamp)
+        // From another device: whatever arrives, the sections are few and finite.
+        val wild = listOf(
+            EqFilter("a", FilterType.LowPass, 1000f, 0f, 0.7f, slope = 6_000_000),
+            EqFilter("b", FilterType.Peak, Float.NaN, 3f, 1f),
+            EqFilter("c", FilterType.Peak, 1000f, Float.POSITIVE_INFINITY, 1f),
+            EqFilter("d", FilterType.HighShelf, 1000f, 1e30f, 1f),
+        )
+        val secs = wild.flatMap { it.sections(48000.0) }
+        assertTrue(secs.size <= 5)
+        assertTrue(secs.all { s -> s.all { it.isFinite() } })
+    }
+
     @Test fun apoExportRoundTrips() {
         val p = EqProfile("x", "Test", List(EQ_BANDS.size) { if (it == 2) 3f else 0f }, preamp = -2f, filters = listOf(
             EqFilter("a", FilterType.HighShelf, 8000f, -2.5f, 0.71f, channel = EqChannel.Left),

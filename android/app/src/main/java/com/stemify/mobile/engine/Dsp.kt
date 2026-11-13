@@ -17,6 +17,8 @@ val EQ_BANDS = floatArrayOf(31.25f, 62.5f, 125f, 250f, 500f, 1000f, 2000f, 4000f
 val EQ_LABELS = listOf("31", "62", "125", "250", "500", "1K", "2K", "4K", "8K", "16K")
 const val EQ_MAX_DB = 12f
 const val EQ_Q = 1.41f // one octave
+/** Beyond any real filter; keeps the coefficient maths finite. */
+private const val MAX_SANE_DB = 120.0
 
 /** Equalizer APO's filter types; [apo] is the name its config files use. */
 @Serializable
@@ -55,9 +57,13 @@ data class EqFilter(
     /** Its biquad sections at [fs]: [b0, b1, b2, a1, a2] each, normalised by a0. */
     fun sections(fs: Double): List<DoubleArray> {
         if (!active) return emptyList()
+        // These numbers may have come from a file or another device, and what's built from them
+        // runs on the audio thread: no NaN may get through, and no slope may ask for endless sections.
+        if (!freq.isFinite() || !gain.isFinite() || !this.q.isFinite()) return emptyList()
         val f0 = freq.toDouble().coerceIn(1.0, fs * 0.49)
         val q = q.toDouble().coerceIn(0.025, 100.0)
-        val g = gain.toDouble()
+        val g = gain.toDouble().coerceIn(-MAX_SANE_DB, MAX_SANE_DB)
+        val slope = slope.coerceAtMost(48)
         return when (type) {
             FilterType.LowPass, FilterType.HighPass -> {
                 val lp = type == FilterType.LowPass

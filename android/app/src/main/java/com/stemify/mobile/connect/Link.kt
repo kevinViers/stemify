@@ -45,7 +45,7 @@ class Link(
             try {
                 val reader = input.bufferedReader(Charsets.UTF_8)
                 while (true) {
-                    val line = reader.readLine() ?: break
+                    val line = reader.readLineUpTo(Wire.MAX_LINE) ?: break
                     heard = SystemClock.elapsedRealtime()
                     if (line.isBlank()) continue
                     val msg = runCatching { AppJson.parseToJsonElement(line).jsonObject }.getOrNull() ?: continue

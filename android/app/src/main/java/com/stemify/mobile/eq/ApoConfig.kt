@@ -45,7 +45,7 @@ object ApoConfig {
             val cmd = line.substring(0, colon).trim().lowercase(Locale.ROOT)
             val args = line.substring(colon + 1).trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
             when {
-                cmd == "preamp" -> preamp = (preamp ?: 0f) + (args.firstOrNull()?.toFloatOrNull() ?: continue)
+                cmd == "preamp" -> preamp = (preamp ?: 0f) + (args.firstOrNull()?.finiteOrNull() ?: continue)
                 cmd == "channel" -> channel = when (args.map { it.uppercase(Locale.ROOT) }.toSet()) {
                     setOf("L") -> EqChannel.Left
                     setOf("R") -> EqChannel.Right
@@ -62,6 +62,9 @@ object ApoConfig {
         return Result(filters, preamp, skipped)
     }
 
+    /** toFloatOrNull also takes "NaN" and "Infinity", which no filter can use. */
+    private fun String.finiteOrNull(): Float? = toFloatOrNull()?.takeIf { it.isFinite() }
+
     private fun parseFilter(args: List<String>, channel: EqChannel): EqFilter? {
         var i = 0
         var on = true
@@ -77,17 +80,19 @@ object ApoConfig {
         var slope = 12
         while (i < args.size) {
             val key = args[i].lowercase(Locale.ROOT)
-            val num = args.getOrNull(i + 1)?.toFloatOrNull()
+            val num = args.getOrNull(i + 1)?.finiteOrNull()
             when {
                 key == "fc" && num != null -> { freq = num; i += 2 }
                 key == "gain" && num != null -> { gain = num; i += 2 }
                 key == "q" && num != null -> { q = num; i += 2 }
                 key == "bw" && args.getOrNull(i + 1)?.lowercase(Locale.ROOT) == "oct" -> {
-                    args.getOrNull(i + 2)?.toFloatOrNull()?.let { bw -> q = (sqrt(2.0.pow(bw.toDouble())) / (2.0.pow(bw.toDouble()) - 1)).toFloat() }
+                    // A width of zero (or a silly one) has no Q.
+                    args.getOrNull(i + 2)?.finiteOrNull()?.takeIf { it > 0f && it <= 16f }
+                        ?.let { bw -> q = (sqrt(2.0.pow(bw.toDouble())) / (2.0.pow(bw.toDouble()) - 1)).toFloat() }
                     i += 3
                 }
                 // "LSC 12dB Fc ...": a shelf or pass slope in dB per octave.
-                key.endsWith("db") && key.removeSuffix("db").toFloatOrNull() != null -> {
+                key.endsWith("db") && key.removeSuffix("db").finiteOrNull() != null -> {
                     slope = key.removeSuffix("db").toFloat().toInt(); i++
                 }
                 else -> i++

@@ -165,6 +165,7 @@ class StemEngine(private val listener: Listener) {
     private var drainToken = -1L
     private var waitingSince = 0L
     private var errorReported = -1L
+    private var reopenedAt = 0L
     private val eq = Equalizer()
     private val limiter = Limiter()
     private var masterCur = 1f
@@ -403,11 +404,40 @@ class StemEngine(private val listener: Listener) {
         var off = 0
         while (off < n * 2 && !released) {
             val w = t.write(out, off, n * 2 - off, AudioTrack.WRITE_BLOCKING)
+            if (w == AudioTrack.ERROR_DEAD_OBJECT && System.nanoTime() - reopenedAt > 2_000_000_000L) {
+                reopenOutput(cur)
+                return
+            }
             if (w < 0) throw IllegalStateException("AudioTrack write failed ($w)")
             off += w
         }
         written += n
         publish()
+    }
+
+    /**
+     * The output died under us (the audio server restarted, a USB DAC was pulled out): carry on
+     * into a new AudioTrack from where the mix is, at the cost of the moment that was buffered,
+     * rather than failing the song. Twice within two seconds is a real failure, and reported.
+     */
+    private fun reopenOutput(s: TrackSession) {
+        reopenedAt = System.nanoTime()
+        track?.let {
+            runCatching { it.removeOnRoutingChangedListener(routing) }
+            runCatching { it.release() }
+        }
+        track = null
+        dropTail()
+        fadeInFrames = 0
+        fadeInDone = 0
+        tsValid = false
+        written = 0
+        // A switch to this song that hadn't reached the speaker yet has to be announced now.
+        val shown = segments.firstOrNull()?.token
+        segments.clear()
+        segments.addLast(Segment(0, s.token, s.framePos, s.sampleRate, 1.0))
+        if (shown != s.token) main.post { listener.onTransition(s.token) }
+        meters.clear()
     }
 
     /** Hands over to the next song once [s] reaches the plan's start, keeping [s] as the fading tail. */

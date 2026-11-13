@@ -157,12 +157,18 @@ class MediaCache(
                 out += id
                 total -= e.bytes
             }
-            out.forEach { catalog.remove(it) }
             out
         }
+        // Each one is deleted under the lock, after checking again that nobody has opened it
+        // since: a resource opened between the choosing and the deleting would otherwise keep
+        // a block map for a file that's gone, and save it back as a full copy of an empty one.
         for (id in victims) {
-            File(dir, "$id.data").delete()
-            File(dir, "$id.meta").delete()
+            synchronized(this) {
+                if (id in open) return@synchronized
+                catalog.remove(id)
+                File(dir, "$id.data").delete()
+                File(dir, "$id.meta").delete()
+            }
         }
         if (victims.isNotEmpty()) publishUsage()
     }

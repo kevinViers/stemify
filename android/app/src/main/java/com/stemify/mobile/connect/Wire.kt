@@ -39,6 +39,24 @@ object Wire {
     const val SILENCE_LIMIT_MS = 20_000L
     const val QUEUE_BEHIND = 50
     const val QUEUE_AHEAD = 1000
+    /** A whole-library playTracks is a few MB; anything longer is garbage (the desktop's limit too). */
+    const val MAX_LINE = 16 shl 20
+}
+
+/**
+ * The next line, without its line break, or null at the end of the stream. Unlike readLine it
+ * gives up on a line longer than [max] characters, so a device that hasn't been approved yet
+ * can't fill the phone's memory by never sending a line break.
+ */
+fun java.io.BufferedReader.readLineUpTo(max: Int): String? {
+    val sb = StringBuilder()
+    while (true) {
+        val c = read()
+        if (c < 0) return if (sb.isEmpty()) null else sb.toString()
+        if (c == '\n'.code) return sb.toString()
+        if (sb.length >= max) throw java.io.IOException("line too long")
+        sb.append(c.toChar())
+    }
 }
 
 enum class Transport { Wifi, Bt }
@@ -207,7 +225,7 @@ class WireEq {
             freq = (o.num("freq") ?: 1000.0).toFloat(),
             gain = (o.num("gain") ?: 0.0).toFloat(),
             q = (o.num("q") ?: 0.707).toFloat(),
-            slope = o.int("slope") ?: 12,
+            slope = (o.int("slope") ?: 12).coerceIn(6, 48),
             channel = EqChannel.entries.firstOrNull { it.name.equals(o.str("channel"), ignoreCase = true) } ?: EqChannel.Both,
             on = o.bool("on") ?: true,
         )

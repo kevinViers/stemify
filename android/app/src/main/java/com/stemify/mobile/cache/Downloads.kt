@@ -234,6 +234,10 @@ class Downloads(
     private suspend fun run(key: String) {
         val rec = _records.value[key] ?: return
         if (rec.done) return
+        var pinned = emptyList<String>()
+        fun isCancelled() = synchronized(cancelled) { key in cancelled }
+        // Removed while it was waiting or downloading: let go of whatever was pinned for it.
+        fun abandon() = pinned.forEach { cache.unpin(it) }
         try {
             if (settings.downloadsWifiOnly.value) net.unmetered.first { it }
             val t = rec.track
@@ -247,8 +251,12 @@ class Downloads(
                 val part = t.partKey ?: throw IOException("No file on the server")
                 listOf(PlaybackManager.plexKey(t) to plex.partUrl(part))
             }
-            update { m -> m + (key to rec.copy(keys = sources.map { it.first }, names = names, stems = entry != null)) }
+            // Removed while waiting for Wi-Fi: don't bring it back.
+            if (isCancelled()) return
+            update { m -> m[key]?.let { m + (key to it.copy(keys = sources.map { s -> s.first }, names = names, stems = entry != null)) } ?: m }
+            pinned = sources.map { it.first }
             sources.forEachIndexed { i, (cacheKey, url) ->
+                if (isCancelled()) return@forEachIndexed
                 val res = cache.acquire(cacheKey) { url }
                 try {
                     res.pinned = true
@@ -257,13 +265,13 @@ class Downloads(
                             val f = if (len > 0) got.toFloat() / len else 0f
                             _progress.update { it + (key to (i + f) / sources.size) }
                         },
-                        cancelled = { synchronized(cancelled) { key in cancelled } },
+                        cancelled = { isCancelled() },
                     )
                 } finally {
                     cache.release(res)
                 }
             }
-            if (synchronized(cancelled) { key in cancelled }) return
+            if (isCancelled()) return abandon()
             if (entry != null) stems.peaks(entry, PlaybackManager.WAVE_BUCKETS) // warms the HTTP cache for offline
             plex.artUrl(t.thumb, 600)?.let { url ->
                 withContext(Dispatchers.Main) {
@@ -274,7 +282,7 @@ class Downloads(
             // Lyrics too, kept on the phone for offline; not something to hold the download up for.
             scope.launch(Dispatchers.IO) { runCatching { lyrics.get(t) } }
         } catch (e: Exception) {
-            if (synchronized(cancelled) { key in cancelled }) return
+            if (isCancelled()) return abandon()
             update { m -> if (key in m) m + (key to m.getValue(key).copy(error = e.message ?: "Download failed")) else m }
         } finally {
             _progress.update { it - key }
@@ -283,10 +291,12 @@ class Downloads(
 
     private fun update(f: (Map<String, DownloadRecord>) -> Map<String, DownloadRecord>) {
         synchronized(this) { _records.value = f(_records.value) }
-        val snapshot = _records.value
         scope.launch(Dispatchers.IO) {
             synchronized(file) {
                 runCatching {
+                    // Whatever is current when this write's turn comes: writes can run out of
+                    // order, and an older snapshot must never land on top of a newer one.
+                    val snapshot = _records.value
                     val tmp = File(file.parentFile, "downloads.json.tmp")
                     tmp.writeText(AppJson.encodeToString(LIST, snapshot.values.toList()))
                     tmp.renameTo(file)
@@ -301,10 +311,10 @@ class Downloads(
 
     private fun updatePlaylists(f: (Map<String, DownloadedPlaylist>) -> Map<String, DownloadedPlaylist>) {
         synchronized(this) { _playlists.value = f(_playlists.value) }
-        val snapshot = _playlists.value
         scope.launch(Dispatchers.IO) {
             synchronized(playlistFile) {
                 runCatching {
+                    val snapshot = _playlists.value
                     val tmp = File(playlistFile.parentFile, "download-playlists.json.tmp")
                     tmp.writeText(AppJson.encodeToString(PLAYLISTS, snapshot.values.toList()))
                     tmp.renameTo(playlistFile)

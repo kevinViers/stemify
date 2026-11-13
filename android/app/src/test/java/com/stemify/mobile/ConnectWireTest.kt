@@ -3,6 +3,7 @@ package com.stemify.mobile
 import com.stemify.mobile.connect.WireEq
 import com.stemify.mobile.connect.WireMix
 import com.stemify.mobile.connect.WireTrack
+import com.stemify.mobile.connect.readLineUpTo
 import com.stemify.mobile.connect.str
 import com.stemify.mobile.core.AppJson
 import com.stemify.mobile.engine.EqChannel
@@ -24,6 +25,17 @@ import org.junit.Test
 /** Stemify Connect's wire formats, against what the desktop apps actually send (docs/CONNECT.md). */
 class ConnectWireTest {
     private fun json(s: String) = AppJson.parseToJsonElement(s).jsonObject
+
+    @Test fun linesAreReadUpToALimit() {
+        val r = "{\"t\":\"ping\"}\r\n\nlast".reader().buffered()
+        assertEquals("{\"t\":\"ping\"}\r", r.readLineUpTo(64))  // the JSON parser shrugs off the \r
+        assertEquals("", r.readLineUpTo(64))
+        assertEquals("last", r.readLineUpTo(64))
+        assertEquals(null, r.readLineUpTo(64))
+        assertEquals("12345678", "12345678\n".reader().buffered().readLineUpTo(8))
+        val endless = "x".repeat(100).reader().buffered()
+        assertTrue(runCatching { endless.readLineUpTo(8) }.exceptionOrNull() is java.io.IOException)
+    }
 
     @Test fun desktopTrackDecodes() {
         // stemify.connect.protocol.track_to_wire, verbatim
