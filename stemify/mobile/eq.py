@@ -25,6 +25,7 @@ FREQ_MIN, FREQ_MAX = 10.0, 22000.0
 FILTER_GAIN = 24.0
 Q_MIN, Q_MAX = 0.1, 20.0
 PREAMP_RANGE = 24.0
+MAX_SANE_DB = 120.0  # beyond any real filter; keeps the coefficient maths from overflowing
 
 # type: (APO name, label, has gain, has slope)
 TYPES = {
@@ -82,7 +83,7 @@ def _clean_filter(f):
     ch = f.get("channel")
     return make_filter(f["type"], max(FREQ_MIN, min(FREQ_MAX, float(f.get("freq", 1000)))),
                        max(-FILTER_GAIN, min(FILTER_GAIN, float(f.get("gain") or 0))),
-                       max(Q_MIN, min(Q_MAX, float(f.get("q") or 0.707))), int(f.get("slope") or 12),
+                       max(Q_MIN, min(Q_MAX, float(f.get("q") or 0.707))), max(6, min(48, int(f.get("slope") or 12))),
                        ch if ch in ("both", "left", "right") else "both", bool(f.get("on", True)), str(f.get("id") or "") or None)
 
 
@@ -143,12 +144,16 @@ def sections(f, fs):
     """A filter's biquad sections at fs."""
     if not is_active(f):
         return []
+    # This runs on the audio thread, on numbers that may have come from a file or another
+    # device: nothing in here may raise, loop for long, or let a NaN into the output.
+    if not all(math.isfinite(f.get(k, 0.0)) for k in ("freq", "gain", "q")):
+        return []
     f0 = min(max(f["freq"], 1.0), fs * 0.49)
     q = min(max(f["q"], 0.025), 100.0)
     kind = f["type"]
     if kind in ("lowpass", "highpass"):
         lp = kind == "lowpass"
-        slope = f.get("slope", 12)
+        slope = min(f.get("slope", 12), SLOPES[-1])
         if slope <= 6:
             return [_first_order(fs, f0, lp)]
         if slope <= 12:
@@ -157,7 +162,7 @@ def sections(f, fs):
         n = slope // 6
         out = [biquad(kind, fs, f0, 0.0, 1 / (2 * math.cos((2 * k - 1) * math.pi / (2 * n)))) for k in range(1, n // 2 + 1)]
         return out + ([_first_order(fs, f0, lp)] if n % 2 else [])
-    return [biquad(kind, fs, f0, f.get("gain", 0.0), q)]
+    return [biquad(kind, fs, f0, min(max(f.get("gain", 0.0), -MAX_SANE_DB), MAX_SANE_DB), q)]
 
 
 def graphic(gains):
@@ -215,8 +220,14 @@ class Equalizer:
         self._sos = [None, None]
         self._zi = [None, None]
         self._pre = 1.0
+        self._sosfilt = None
 
     def set(self, params):
+        if params is not None and self._sosfilt is None:
+            # scipy.signal takes a moment to import: here on the GUI thread, the first time the
+            # EQ has anything to do, rather than in the audio callback, where it would glitch.
+            from scipy.signal import sosfilt
+            self._sosfilt = sosfilt
         self._want = params
 
     def process(self, buf, fs):
@@ -227,11 +238,10 @@ class Equalizer:
             self._design(want, fs)
         if self._pre != 1.0:
             buf *= self._pre
-        from scipy.signal import sosfilt
         for ch in (0, 1):
             sos = self._sos[ch]
             if sos is not None:
-                y, self._zi[ch] = sosfilt(sos, buf[:, ch], zi=self._zi[ch])
+                y, self._zi[ch] = self._sosfilt(sos, buf[:, ch], zi=self._zi[ch])
                 buf[:, ch] = y
 
     def _design(self, params, fs):
@@ -263,9 +273,10 @@ _APO_TYPES = {
 
 def _num(s):
     try:
-        return float(s)
+        v = float(s)
     except (TypeError, ValueError):
         return None
+    return v if math.isfinite(v) else None  # float() takes "nan" and "inf" too
 
 
 def parse_apo(text):
@@ -319,7 +330,9 @@ def _parse_filter(args, channel):
             q, i = nxt, i + 2
         elif key == "bw" and i + 2 < len(args) and args[i + 1].lower() == "oct" and _num(args[i + 2]) is not None:
             bw = _num(args[i + 2])
-            q, i = math.sqrt(2 ** bw) / (2 ** bw - 1), i + 3
+            if 0 < bw <= 16:  # anything else has no Q
+                q = math.sqrt(2 ** bw) / (2 ** bw - 1)
+            i += 3
         elif key.endswith("db") and _num(key[:-2]) is not None:
             slope, i = int(_num(key[:-2])), i + 1  # "LSC 12dB Fc ...": a slope in dB per octave
         else:

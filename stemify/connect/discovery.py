@@ -83,7 +83,9 @@ class Beacon(QObject):
                 if self.port:
                     QTimer.singleShot(random.randint(20, 250), self.announce)
                 continue
-            did, port = str(msg.get("id") or ""), int(msg.get("port") or 0)
+            did, port = str(msg.get("id") or ""), msg.get("port")
+            if not isinstance(port, int) or not 0 < port < 65536:
+                continue  # anything on the network can send a beacon; ignore the malformed ones
             if not did or did == self.identity["id"] or not port:
                 continue
             host = dg.senderAddress()

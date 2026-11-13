@@ -189,6 +189,8 @@ class BtScanner(QObject):
             msg = json.loads(self._buf.split(b"\n", 1)[0])
         except ValueError:
             msg = {}
+        if not isinstance(msg, dict):
+            msg = {}
         if msg.get("t") in ("welcome", "pending") and msg.get("id"):
             self.found.emit({"id": str(msg["id"]), "name": str(msg.get("name") or name), "app": str(msg.get("app") or ""),
                              "address": address, "transport": "bt"})

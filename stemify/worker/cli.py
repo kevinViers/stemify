@@ -39,7 +39,6 @@ def main():
     t0 = time.monotonic()
     proc = subprocess.Popen([sys.executable, "-m", "stemify.worker", "--socket", sock_path])
     conn, _ = server.accept()
-    rfile = conn.makefile("r")
 
     def send(**msg):
         conn.sendall((json.dumps(msg) + "\n").encode())

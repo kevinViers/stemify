@@ -230,10 +230,11 @@ class Receiver(QObject):
         if not s.approved:
             return
         if t == "cmd":
-            seq = int(m.get("seq") or 0)
+            seq = m.get("seq")
+            seq = int(seq) if isinstance(seq, (int, float)) and math.isfinite(seq) else 0
             try:
                 self._apply(m.get("op"), m)
-            except (KeyError, TypeError, ValueError, IndexError) as e:
+            except (KeyError, TypeError, ValueError, IndexError, AttributeError, OverflowError) as e:
                 s.link.send({"t": "toast", "text": f"Couldn't do that: {e}"})
             s.ack = max(s.ack, seq)
             op = m.get("op")

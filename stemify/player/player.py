@@ -7,7 +7,9 @@ import os
 import random
 import shutil
 import subprocess
+import tempfile
 import threading
+import time
 import urllib.request
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
@@ -104,6 +106,8 @@ class Player(QObject):
     # The queue can be the whole library, so it lives in its own file, written off the GUI
     # thread and only when it changes; the small state (position, mix) saves often.
     QUEUE_PATH = os.path.join(config.CONFIG_DIR, "player-queue.json")
+    _queue_write_lock = threading.Lock()
+    _trim_lock = threading.Lock()
     QUEUE_KEYS = ("key", "title", "artist", "albumArtist", "album", "albumKey", "artistKey", "year", "index", "disc",
                   "durationMs", "thumb", "partFile", "partKey", "partId", "partSize", "codec", "stemKey", "_cover")
 
@@ -137,9 +141,10 @@ class Player(QObject):
 
             def write():
                 tmp = self.QUEUE_PATH + ".tmp"
-                with open(tmp, "w") as f:
-                    json.dump(data, f)
-                os.replace(tmp, self.QUEUE_PATH)
+                with self._queue_write_lock:  # two saves close together would share the .tmp
+                    with open(tmp, "w") as f:
+                        json.dump(data, f)
+                    os.replace(tmp, self.QUEUE_PATH)
             t = threading.Thread(target=write, daemon=not wait)
             t.start()
             if wait:
@@ -409,24 +414,48 @@ class Player(QObject):
         if os.path.exists(path):
             os.utime(path)
             return path
-        tmp = path + ".part"
-        req = urllib.request.Request(url, headers={"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {})
-        with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
-            while chunk := r.read(1 << 20):
-                f.write(chunk)
-        os.replace(tmp, path)
+        # Its own .part: the same file can be wanted twice at once (skipping to a song while it's
+        # being readied to follow), and two downloads sharing one would trip over each other.
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".part")
+        try:
+            req = urllib.request.Request(url, headers={"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {})
+            with os.fdopen(fd, "wb") as f, urllib.request.urlopen(req, timeout=30) as r:
+                while chunk := r.read(1 << 20):
+                    f.write(chunk)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
         self._trim_cache(d)
         return path
 
     @staticmethod
     def _trim_cache(d, limit=4 << 30):
-        files = [os.path.join(d, f) for f in os.listdir(d) if not f.endswith(".part")]
-        files.sort(key=lambda p: os.path.getmtime(p))
-        total = sum(os.path.getsize(p) for p in files)
-        while files and total > limit:
-            p = files.pop(0)
-            total -= os.path.getsize(p)
-            os.remove(p)
+        # Stems download side by side and each trims when it lands, so one at a time, and a
+        # file that's gone by the time we get to it is no reason to fail the song.
+        with Player._trim_lock:
+            files = []
+            for f in os.listdir(d):
+                p = os.path.join(d, f)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                if f.endswith(".part"):
+                    if time.time() - st.st_mtime > 86400:  # left by a crash
+                        _remove(p)
+                    continue
+                files.append((st.st_mtime, st.st_size, p))
+            files.sort()
+            total = sum(size for _, size, _ in files)
+            for _, size, p in files:
+                if total <= limit:
+                    break
+                total -= size
+                _remove(p)
 
     def _on_loaded(self, token, result, track):
         if token != self._token:
@@ -765,6 +794,13 @@ class Player(QObject):
         self.crossfadeChanged.emit()
         self.replan()
         self._save_soon()
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def wave_bars(w, mix, names):

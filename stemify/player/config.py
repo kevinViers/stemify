@@ -54,6 +54,8 @@ def load() -> dict:
 def save(cfg: dict):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     tmp = PATH + ".tmp"
-    with open(tmp, "w") as f:
+    # Owner-only: the Plex and stem server tokens are in here.
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        os.fchmod(f.fileno(), 0o600)  # a .tmp left by a crash keeps its old mode otherwise
         json.dump(cfg, f, indent=1)
     os.replace(tmp, PATH)
