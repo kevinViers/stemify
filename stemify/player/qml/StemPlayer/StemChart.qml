@@ -50,11 +50,13 @@ Rectangle {
         }
 
         Repeater {
-            model: ch.stems
+            // A count, not the list: the list is new on every level change, and rebuilding the
+            // columns would drop the one being dragged.
+            model: ch.n
             delegate: Item {
                 id: cat
                 required property int index
-                required property var modelData
+                readonly property var modelData: ch.stems[index] || ({ label: "", level: 0, color: "transparent", audible: false, muted: false, solo: false, db: 0 })
                 readonly property real cw: plot.width / Math.max(1, ch.n)
                 x: index * cw
                 width: cw
@@ -83,6 +85,7 @@ Rectangle {
                     id: dm
                     anchors.fill: parent
                     hoverEnabled: true
+                    preventStealing: true  // the task pane scrolls; it mustn't take the drag
                     cursorShape: Qt.SizeVerCursor
                     function set(m) { player.setLevel(cat.index, Math.max(0, Math.min(1, 1 - m.y / plot.height))) }
                     onPressed: (m) => set(m)

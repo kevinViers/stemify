@@ -5,7 +5,9 @@ import QtQuick.Controls.Basic
 ToolTip {
     id: tt
     property var target
-    visible: target && target.containsMouse && text !== "" && hoverTimer.done
+    visible: target && target.containsMouse && !target.pressed && text !== "" && hoverTimer.done
+    // Never closes on a press, so it never eats one: the click or drag goes to what's under it.
+    closePolicy: Popup.NoAutoClose
     delay: 0
     timeout: 6000
     padding: 6
