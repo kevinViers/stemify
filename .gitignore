@@ -13,6 +13,8 @@ android/captures/
 .idea/
 *.iml
 
-# Built and third-party APKs (publish builds as GitHub Releases instead)
+# Built and third-party APKs stay out, except the Stemify release build at the root, which is
+# kept in the repo so it can be downloaded and sideloaded straight from GitHub.
 *.apk
 *.aab
+!/Stemify.apk
