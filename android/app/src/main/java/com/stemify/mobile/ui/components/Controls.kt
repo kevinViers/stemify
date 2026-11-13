@@ -62,6 +62,11 @@ import com.stemify.mobile.ui.theme.Sym
 import com.stemify.mobile.ui.theme.Txt
 import com.stemify.mobile.ui.theme.Type
 import kotlin.math.abs
+import androidx.compose.animation.core.snap
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.roundToInt
 
 /** Tap target without a ripple. iOS dims or highlights instead; [pressed] reports it. */
@@ -80,8 +85,41 @@ fun Modifier.tappable(
 fun Modifier.pressFade(enabled: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier = composed {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
-    val a by animateFloatAsState(if (pressed) 0.35f else 1f, tween(if (pressed) 0 else 220), label = "press")
-    this.alpha(if (enabled) a else 0.35f).tappable(enabled, onLongClick, src, onClick)
+    // Snap down on press, ease back on release. (A 0 ms tween here could leave the alpha NaN when
+    // press and release land in one frame, and the button vanished.)
+    val a by animateFloatAsState(if (pressed) 0.35f else 1f, if (pressed) snap() else tween(220), label = "press")
+    this.alpha(if (!enabled) 0.35f else if (a.isNaN()) 1f else a.coerceIn(0.35f, 1f)).tappable(enabled, onLongClick, src, onClick)
+}
+
+/**
+ * Android-style track swipe: drag sideways and the content follows the finger; let go past the
+ * threshold for the next song (left) or the previous one (right).
+ */
+fun Modifier.trackSwipe(onNext: () -> Unit, onPrevious: () -> Unit, enabled: Boolean = true): Modifier = composed {
+    val scope = rememberCoroutineScope()
+    val shift = remember { androidx.compose.animation.core.Animatable(0f) }
+    val next by rememberUpdatedState(onNext)
+    val previous by rememberUpdatedState(onPrevious)
+    val haptic = LocalHapticFeedback.current
+    this.graphicsLayer {
+        translationX = shift.value
+        alpha = 1f - kotlin.math.min(0.5f, abs(shift.value) / size.width.coerceAtLeast(1f))
+    }.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        val threshold = 64.dp.toPx()
+        detectHorizontalDragGestures(
+            onDragEnd = {
+                val v = shift.value
+                if (v < -threshold) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); next() }
+                else if (v > threshold) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); previous() }
+                scope.launch { shift.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f)) }
+            },
+            onDragCancel = { scope.launch { shift.animateTo(0f) } },
+        ) { ch, dx ->
+            ch.consume()
+            scope.launch { shift.snapTo(shift.value + dx * 0.7f) }
+        }
+    }
 }
 
 @Composable
@@ -221,6 +259,74 @@ fun IosSlider(
     }
 }
 
+/**
+ * A stem's fader standing up, as on a mixing desk: value 0..1 from the bottom, with a [detent]
+ * tick, and the stem's live [level] (0..1, already scaled for display) as a thin bar beside it.
+ */
+@Composable
+fun VerticalFader(
+    value: Float,
+    onChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    fill: Color = Ios.colors.accent,
+    detent: Float? = null,
+    level: Float = 0f,
+    enabled: Boolean = true,
+    thumb: Dp = 26.dp,
+) {
+    val c = Ios.colors
+    val haptic = LocalHapticFeedback.current
+    val current by rememberUpdatedState(value)
+    val change by rememberUpdatedState(onChange)
+    Canvas(
+        modifier.fillMaxHeight().width(44.dp).alpha(if (enabled) 1f else 0.4f)
+            .pointerInput(enabled, detent) {
+                if (!enabled) return@pointerInput
+                val t = thumb.toPx()
+                var start = 0f
+                var acc = 0f
+                detectDragGestures(onDragStart = { start = current; acc = 0f }) { ch, drag ->
+                    ch.consume()
+                    acc -= drag.y
+                    val before = current
+                    var v = (start + acc / (size.height - t)).coerceIn(0f, 1f)
+                    if (detent != null && abs(v - detent) < 0.025f) v = detent
+                    if (detent != null && v == detent && before != detent) haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    change(v)
+                }
+            }
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures { o ->
+                    val t = thumb.toPx()
+                    val v = (1f - (o.y - t / 2) / (size.height - t)).coerceIn(0f, 1f)
+                    change(if (detent != null && abs(v - detent) < 0.025f) detent else v)
+                }
+            },
+    ) {
+        val t = thumb.toPx()
+        val w = 5.dp.toPx()
+        val x = size.width / 2
+        val top = t / 2
+        val span = size.height - t
+        val y = top + span * (1f - value.coerceIn(0f, 1f))
+        drawRoundRect(c.fillStrong, Offset(x - w / 2, top), Size(w, span), CornerRadius(w / 2))
+        drawRoundRect(fill, Offset(x - w / 2, y), Size(w, top + span - y), CornerRadius(w / 2))
+        // Live level, a hairline to the right of the track.
+        val m = 3.dp.toPx()
+        val mx = x + 9.dp.toPx()
+        val lv = span * level.coerceIn(0f, 1f)
+        drawRoundRect(c.fill, Offset(mx, top), Size(m, span), CornerRadius(m / 2))
+        drawRoundRect(fill, Offset(mx, top + span - lv), Size(m, lv), CornerRadius(m / 2))
+        if (detent != null) {
+            val dy = top + span * (1f - detent)
+            drawLine(c.label3, Offset(x - 9.dp.toPx(), dy), Offset(x - 5.dp.toPx(), dy), 1.5.dp.toPx(), StrokeCap.Round)
+        }
+        if (c.thumbBorder.alpha > 0f) drawCircle(c.thumbBorder, t / 2 + 0.5.dp.toPx(), Offset(x, y))
+        drawCircle(Color.White, t / 2, Offset(x, y))
+    }
+}
+
 /** A vertical UISlider for the EQ: centre-detented, value in -1..1. */
 @Composable
 fun VerticalBandSlider(value: Float, onChange: (Float) -> Unit, modifier: Modifier = Modifier, fill: Color = Ios.colors.accent) {
@@ -276,16 +382,20 @@ fun PillButton(text: String, icon: ImageVector, onClick: () -> Unit, modifier: M
     }
 }
 
-/** Capsule chip, accent-filled when selected. */
+/**
+ * Capsule chip, accent-filled when selected. [large]: the taller iOS capsule, selected in solid
+ * label colour (the unfolded phone's stems pane).
+ */
 @Composable
-fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, large: Boolean = false) {
     val c = Ios.colors
+    val on = if (large) c.label else c.accent
     Box(
-        modifier.height(32.dp).clip(CircleShape).background(if (selected) c.accent else c.fill)
-            .pressFade(onClick = onClick).padding(horizontal = 14.dp),
+        modifier.height(if (large) 40.dp else 32.dp).clip(CircleShape).background(if (selected) on else c.fill)
+            .pressFade(onClick = onClick).padding(horizontal = if (large) 18.dp else 14.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Txt(text, Type.footnote, color = if (selected) Color.White else c.label, weight = FontWeight.SemiBold)
+        Txt(text, if (large) Type.subhead else Type.footnote, color = if (selected) (if (large) c.bg else Color.White) else c.label, weight = FontWeight.SemiBold)
     }
 }
 

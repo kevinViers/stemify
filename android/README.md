@@ -46,6 +46,14 @@ profile has its own manual preamp; anti-clipping adds whatever else the curve ne
 Filters page's ••• menu pastes an Equalizer APO config from the clipboard (AutoEQ's
 `ParametricEQ.txt` for your headphones works as-is) and copies the profile out as one.
 
+The queue shows **History** (what's played) above the current song and **Playing Next** below
+it, opening on the current song. Swipe a queue row left to remove it. The app looks like iOS but
+takes Android gestures too: swipe the artwork or mini player sideways to change song, and back
+closes the lyrics / mixer / queue panel, then Now Playing, then pages, then returns to Library.
+
+The Equalizer's **Profile** row opens a list of every profile: tap to use one, **+** to add one,
+and swipe left (or **Edit**, then the red minus) to delete one. The last profile stays.
+
 The seek bar's waveform is scaled to each song's own range (its loud moments fill the bar,
 its quiet parts sit low), and the mixer's level meters follow what's audible at display rate.
 Either side of the previous and next buttons, Now Playing has 10-second skip back and ahead.
@@ -120,6 +128,24 @@ adb forward tcp:5277 tcp:5277
 ```
 
 (It needs libc++, which this host lacks; here it runs in the `dhu-headless` podman image.)
+
+## Folding phones
+
+Built on a OnePlus Open. Closed, the cover screen is the ordinary phone app. Open it and the app
+spreads across the inner screen, iPad style:
+
+- **Stems and Playing Next** on one side: every stem on a single line (fader with its live level,
+  M and S), the mix presets above, the queue below.
+- **Now Playing** on the other, always on screen, with shuffle and repeat either side of the
+  transport. Its mixer button flips the other side between the stems and whatever tab you were on.
+- **A rail of tabs** down the right edge: Playing, Library, Playlists, Search, Downloads, Settings
+  and **Swap**, which moves Now Playing to the other side (remembered). The time, Wi-Fi and a
+  battery ring sit at the top of the rail in place of the status bar; swipe down from the top
+  edge to get the status bar back.
+
+Stand the phone on its side half-open (tabletop) and it becomes a little mixing desk: the art and
+title (or lyrics, or the queue) above the fold; below it, every stem as an upright fader with its
+live level, M and S, beside the seek bar (with volume), ±10 s, previous / play / next and the output.
 
 ## Display
 

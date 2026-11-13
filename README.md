@@ -257,8 +257,8 @@ stemd renames their old done-markers on its first start so nothing gets separate
 
 Built for (and lovingly tested on) a OnePlus 15, but any recent Android phone should be happy.
 
-1. Grab `Stemify.apk` from the Releases page, or [build it yourself](#building-and-testing),
-   then sideload it:
+1. Download [`Stemify.apk`](Stemify.apk) from the root of this repo (it's the current release
+   build), or [build it yourself](#building-and-testing), then sideload it:
    ```sh
    adb install -r Stemify.apk
    ```
@@ -305,6 +305,18 @@ they're done. Those songs still play, just from the original file.
 **The Now Playing screen** has the waveform seek bar, 10-second skip buttons beside previous and
 next, the mixer (faders, mute, solo, mix presets, meters, master volume), lyrics and the queue.
 Your mix can carry over from song to song or reset each time, your choice.
+
+**The queue** shows what's already played (**History**) above the current song and **Playing
+Next** below it; it opens on the current song, so History is a scroll up. Tap any song to jump
+to it, drag the handle to reorder, swipe left to take a song off the queue.
+
+**It looks like iOS but takes Android gestures too:** swipe the artwork or the mini player sideways
+for the next or previous song, and the back gesture closes things in order (the lyrics, mixer or
+queue panel, then Now Playing, then the page you're on, then the tab, back to Library).
+
+**On a folding phone** (built on a OnePlus Open) the inner screen gets an iPad-style layout: the
+stems and queue, Now Playing, and a rail of tabs, and a half-open phone on its side turns into a
+little mixing desk with upright faders. See [android/README.md](android/README.md#folding-phones).
 
 <p align="center">
   <img src="docs/screenshots/phone-lyrics.png" width="250" alt="Kashmir's lyrics, filling in word by word">
@@ -390,6 +402,8 @@ profile's parametric filters (that one's from Stemify Mobile on the desktop).</i
 
 **Profiles follow your output device.** The phone speaker, wired headphones, each Bluetooth headset
 and each USB DAC can have their own profile, switched automatically the moment audio moves to it.
+Tap **Profile** for the list of them all: tap one to use it, **+** for a new one, and swipe left (or
+**Edit**, then the red minus) to delete one.
 
 **Headphone corrections in two taps.** Copy a `ParametricEQ.txt` from
 [AutoEQ](https://github.com/jaakkopasanen/AutoEq) and choose **Parametric Filters → ••• → Paste APO

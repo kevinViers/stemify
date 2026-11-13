@@ -39,7 +39,7 @@ so the curves are what the app shows and what you hear. `docs/eq/make_figures.py
    button (it reads something like `Galaxy Buds2 Pro · Rock`).
 2. **Connect what you listen on.** The **Output** row shows the device. The EQ remembers a setup
    per device, so do this with your headphones actually connected.
-3. **Make a profile for it.** Tap **Profile → New Profile…**, type a name ("Galaxy Buds"), tap
+3. **Make a profile for it.** Tap **Profile**, then **+**, type a name ("Galaxy Buds"), tap
    **Create**. It's linked to the connected device, and (in **Automatic** mode, the default)
    active straight away.
 4. **Pick a starting point.** Tap **Presets** and try a few while a song you know well is playing.
@@ -233,7 +233,7 @@ link, but the hand-picked profile plays.
 
 **Settings and their side effects:**
 
-- **Picking a profile from the Profile sheet switches to Manual by itself**, since you've
+- **Picking a profile from the Profiles page switches to Manual by itself**, since you've
   clearly asked for that profile.
 - **Switching back to Automatic forgets the manual pick.** The device's linked profile (or the
   default) takes over again.
@@ -265,15 +265,19 @@ Parametric Filters page.
 
 ### Profile (row)
 
-Shows the active profile. **Tap** it for the profile list:
+Shows the active profile. **Tap** it for the **Profiles** page:
 
-- **Every profile**, with a ✓ on the active one and its linked devices in brackets. Tapping one
-  makes it active and switches to Manual.
-- **New Profile…**: creates a profile from the current curve and links it to the current device.
-- **Manage "<name>"…**: actions for the active profile (Use for / Unlink from <device>, Make
-  Default, Rename, Duplicate, Delete).
+- **Every profile**, with a ✓ on the active one and, under its name, whether it's the default,
+  its linked devices and how many filters it has. Tapping one makes it active and switches to
+  Manual.
+- **+** (top right): a new profile from the current curve, linked to the current device.
+- **Swipe a profile left** for a red **Delete** button (swipe all the way across to delete in one
+  go), or tap **Edit**, then a profile's red minus, then **Delete**. There's no undo. The last
+  profile can't be deleted.
+- **Hold** a profile for its actions: Use for / Unlink from <device>, Make Default, Rename,
+  Duplicate, Delete.
 
-**Hold** the row to jump straight to the Manage menu. Everything about profiles is in
+**Hold** the Profile row itself to jump straight to the active profile's actions. Everything about profiles is in
 [section 9](#9-profiles-and-devices).
 
 ### Parametric Filters (row)
@@ -1091,30 +1095,30 @@ devices, for example one "IEMs" profile for your wired and USB in-ears.
 | Action | Where | What it does |
 |---|---|---|
 | **Select** | Profile → tap a name | Makes it active, and switches to **Manual** |
-| **New Profile…** | Profile sheet | Asks for a name (blank becomes "Profile"). Copies the **current** bands, filters and preamp. **Links it to the current device.** Doesn't change the mode |
+| **New Profile…** | Profiles page → **+** | Asks for a name (blank becomes "Profile"). Copies the **current** bands, filters and preamp. **Links it to the current device.** Doesn't change the mode |
 | **Use for <device>** | Manage menu | Links this profile to the current output (unlinking it from any other profile) |
 | **Unlink from <device>** | Manage menu | The device falls back to the default profile |
 | **Link from the Output row** | Main screen → Output | The same as Use for, choosing the profile from a list. **Use Default** unlinks |
 | **Make Default** | Manage menu | This profile plays on any device without a link. Only shown when it isn't already the default |
 | **Rename…** | Manage menu | Renames it. A blank name keeps the old one |
 | **Duplicate** | Manage menu | Copies bands, filters and preamp as "<name> Copy". **Not** linked to anything and not selected, so it's a safe backup |
-| **Delete Profile** | Manage menu | Deletes it, after a confirmation. Its device links go with it. Deleting the default makes the first remaining profile the default. You can't delete the last profile |
+| **Delete** | Profiles page → swipe left, or **Edit** → red minus; also the Manage menu | Deletes it (from the Manage menu, after a confirmation; there's no undo). Its device links go with it. Deleting the default makes the first remaining profile the default. You can't delete the last profile |
 
-The Manage menu is **Profile → Manage "<name>"…**, or hold the Profile row. It always acts on the
-**active** profile.
+The Manage menu is holding a profile on the Profiles page (any profile), or holding the Profile
+row on the main screen (the **active** profile).
 
 ### Common workflows
 
 **A profile for new headphones**
 1. Connect them and start a song.
-2. In **Automatic** mode, tap **Profile → New Profile…** and name it after them. It copies the
+2. In **Automatic** mode, tap **Profile → +** and name it after them. It copies the
    current sound and is linked and active straight away.
 3. To start from scratch instead, see the next workflow.
 
 **A profile that starts flat** (for an AutoEQ import, or a clean slate)
 1. Connect the device.
 2. **Profile → Flat** (this switches to Manual).
-3. **Profile → New Profile…** and name it. It's a flat copy, linked to the device.
+3. **Profile → +** and name it. It's a flat copy, linked to the device.
 4. Tap **Automatic**. The new profile is linked, so it becomes the active one. Check the editor's
    header shows the new name.
 

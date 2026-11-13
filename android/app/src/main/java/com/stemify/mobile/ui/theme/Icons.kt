@@ -113,6 +113,16 @@ object Sym {
         icon("square.stack", s("M6 3.8h12", 1.8f),
             f("M5 6.8h14c.94 0 1.7.76 1.7 1.7v10.8c0 .94-.76 1.7-1.7 1.7H5c-.94 0-1.7-.76-1.7-1.7V8.5c0-.94.76-1.7 1.7-1.7z"))
     }
+    val wifi by lazy {
+        icon("wifi", f(circle(12f, 18.4f, 1.7f)), s("M8.5 14.9a5 5 0 0 1 7 0", 2f), s("M5.3 11.7a9.5 9.5 0 0 1 13.4 0", 2f), s("M2.2 8.5a13.9 13.9 0 0 1 19.6 0", 2f))
+    }
+    /** Two arrows passing each other: swap the two panes on an unfolded phone. */
+    val swap by lazy { icon("arrow.left.arrow.right", s("M4 8h15.5M16 4.5L19.5 8 16 11.5M20 16H4.5M8 12.5L4.5 16 8 19.5", 1.9f)) }
+    /** A handheld microphone: lyrics, karaoke-style. */
+    val mic by lazy {
+        icon("music.mic", f(circle(15.4f, 8.6f, 5.2f)),
+            f("M10.9 11.3l1.8 1.8-7.5 7.9c-.4.42-1.06.43-1.47.02l-.95-.95c-.41-.41-.4-1.07.02-1.47z"))
+    }
     val waveform by lazy { icon("waveform", s("M3 10.5v3M6.6 7v10M10.2 4.5v15M13.8 8.5v7M17.4 6v12M21 10v4", 2f)) }
     val headphones by lazy {
         icon("headphones", s("M4 15.5v-3.2a8 8 0 0 1 16 0v3.2", 1.9f),

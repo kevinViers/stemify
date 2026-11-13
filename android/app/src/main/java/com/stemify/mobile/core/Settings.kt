@@ -84,6 +84,8 @@ class Settings(context: Context) {
     val accent = enum("accent", Accent.Music)
     val albumColorNowPlaying = bool("albumColorNowPlaying", false)
     val highRefreshRate = bool("highRefreshRate", true)
+    /** Unfolded: Now Playing on the left and the library or stems on the right. */
+    val wideSwapped = bool("wideSwapped", false)
 
     val stemQuality = enum("stemQuality", StemQuality.High)
     val cacheLimitGb = int("cacheLimitGb", 10)

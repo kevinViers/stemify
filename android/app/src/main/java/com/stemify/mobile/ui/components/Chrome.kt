@@ -2,6 +2,14 @@ package com.stemify.mobile.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.core.spring
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.Stable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -389,5 +397,84 @@ fun ErrorRow(message: String, onRetry: () -> Unit) {
         }
     } else {
         EmptyState(Sym.warning, "Couldn't Load", message, "Try Again", onRetry)
+    }
+}
+
+// ---- swipe to delete --------------------------------------------------------------------------
+
+/** How far a [SwipeToDelete] row is open: 0 closed, negative pixels while its Delete button shows. */
+@Stable
+class SwipeState {
+    internal val offset = androidx.compose.animation.core.Animatable(0f)
+    internal var scope: kotlinx.coroutines.CoroutineScope? = null
+    internal var revealPx = 0f
+    val open get() = offset.value < -1f
+
+    /** Shows the Delete button, as the red minus does in Edit mode. */
+    fun reveal() { scope?.launch { offset.animateTo(-revealPx, spring(dampingRatio = 0.85f, stiffness = 500f)) } }
+    fun close() { scope?.launch { offset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 500f)) } }
+}
+
+/**
+ * A UITableView row that swipes left to show a red Delete button; swiping most of the way across
+ * deletes straight away. Tapping the row while it's open closes it.
+ */
+@Composable
+fun SwipeToDelete(
+    state: SwipeState,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    label: String = "Delete",
+    rowColor: Color = Ios.colors.cell,
+    content: @Composable () -> Unit,
+) {
+    val c = Ios.colors
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    state.scope = scope
+    state.revealPx = with(density) { 88.dp.toPx() }
+    val delete by rememberUpdatedState(onDelete)
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val width = constraints.maxWidth.toFloat()
+        fun deleteNow() = scope.launch {
+            state.offset.animateTo(-width, tween(180))
+            delete()
+            state.offset.snapTo(0f)
+        }
+        if (state.offset.value < 0f) {
+            Box(
+                Modifier.matchParentSize().background(c.red).tappable { deleteNow() },
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Txt(label, Type.body, Modifier.width(with(density) { (-state.offset.value).toDp() }.coerceAtLeast(88.dp)).padding(horizontal = 12.dp),
+                    color = Color.White, align = TextAlign.Center)
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth()
+                .graphicsLayer { translationX = state.offset.value }
+                .background(rowColor)
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val v = state.offset.value
+                            when {
+                                v < -width * 0.6f -> deleteNow()
+                                v < -state.revealPx / 2 -> state.reveal()
+                                else -> state.close()
+                            }
+                        },
+                        onDragCancel = { state.close() },
+                    ) { ch, dx ->
+                        ch.consume()
+                        scope.launch { state.offset.snapTo((state.offset.value + dx).coerceIn(-width, 0f)) }
+                    }
+                },
+        ) {
+            content()
+            if (state.open) Box(Modifier.matchParentSize().tappable { state.close() })
+        }
     }
 }

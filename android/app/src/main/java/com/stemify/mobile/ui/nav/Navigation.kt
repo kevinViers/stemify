@@ -52,6 +52,7 @@ sealed interface Route {
     data object Playlists : Route { override val title = "Playlists" }
     data object Search : Route { override val title = "Search" }
     data object Eq : Route { override val title = "Equalizer" }
+    data object EqProfiles : Route { override val title = "Profiles" }
     data class EqFilters(val profileId: String) : Route { override val title = "Filters" }
     data class EqFilterPage(val profileId: String, val filterId: String) : Route { override val title = "Filter" }
     data object Settings : Route { override val title = "Settings" }

@@ -13,13 +13,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -66,10 +72,14 @@ import com.stemify.mobile.ui.screens.ArtistScreen
 import com.stemify.mobile.ui.screens.ArtistsScreen
 import com.stemify.mobile.ui.screens.DownloadsScreen
 import com.stemify.mobile.ui.screens.EqScreen
+import com.stemify.mobile.ui.screens.EqProfilesScreen
 import com.stemify.mobile.ui.screens.LibraryHome
 import com.stemify.mobile.ui.screens.LocalApp
 import com.stemify.mobile.ui.screens.MiniPlayer
 import com.stemify.mobile.ui.screens.NowPlayingScreen
+import com.stemify.mobile.ui.screens.NpLayout
+import com.stemify.mobile.ui.screens.StemsPane
+import com.stemify.mobile.ui.screens.TabletopPlayer
 import com.stemify.mobile.ui.screens.PlaylistScreen
 import com.stemify.mobile.ui.screens.PlaylistsScreen
 import com.stemify.mobile.ui.screens.PlexAccountScreen
@@ -106,6 +116,7 @@ private fun Screen(route: Route) = when (route) {
     Route.Playlists -> PlaylistsScreen()
     Route.Search -> SearchScreen()
     Route.Eq -> EqScreen()
+    Route.EqProfiles -> EqProfilesScreen()
     is Route.EqFilters -> EqFiltersScreen(route.profileId)
     is Route.EqFilterPage -> EqFilterScreen(route.profileId, route.filterId)
     Route.Settings -> SettingsScreen()
@@ -170,18 +181,22 @@ private fun Shell(openNowPlaying: Int) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+    // Unfolded: whether the side pane shows the stems and queue (the rail's Playing) or [tab].
+    var playingPane by remember { mutableStateOf(true) }
     val actions = remember {
         AppActions(
-            openNowPlaying = { sheet.animateTo(1f) },
+            openNowPlaying = { sheet.animateTo(1f); playingPane = true },
             closeNowPlaying = { sheet.animateTo(0f) },
-            selectTab = { tab = it },
+            selectTab = { tab = it; playingPane = false },
             showInLibrary = { r ->
                 sheet.animateTo(0f)
+                playingPane = false
                 tab = Tab.Library
                 stacks.getValue(Tab.Library).push(r)
             },
             showInSettings = { r ->
                 sheet.animateTo(0f)
+                playingPane = false
                 tab = Tab.Settings
                 val st = stacks.getValue(Tab.Settings)
                 if (st.entries.last().route != r) st.push(r)
@@ -191,10 +206,17 @@ private fun Shell(openNowPlaying: Int) {
     LaunchedEffect(openNowPlaying) { if (openNowPlaying > 0 && g.controls.current.value != null) sheet.animateTo(1f) }
     LaunchedEffect(Unit) { merge(g.playback.messages, g.connect.messages).collect { overlays.hud(it, Sym.warning) } }
 
-    val bottomInset = navBottom + 50.dp + if (current != null) 64.dp else 0.dp
+    val fold = rememberFold()
+    val swapped by g.settings.wideSwapped.flow.collectAsState()
 
-    CompositionLocalProvider(LocalOverlays provides overlays, LocalApp provides actions, LocalBottomInset provides bottomInset) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        // Unfolded: stems and queue (or a tab) | Now Playing | a rail of tabs, iPad style, split at
+        // the hinge. Tabletop (on its side, half closed): Now Playing fills the screen, folded at the hinge.
+        val tabletop = fold.tabletop && current != null
+        val split = maxWidth >= WideWindow && !tabletop
+        val bottomInset = if (split) navBottom + 12.dp else navBottom + 50.dp + if (current != null) 64.dp else 0.dp
+        HideStatusBar(split)
+        CompositionLocalProvider(LocalOverlays provides overlays, LocalApp provides actions, LocalBottomInset provides bottomInset) {
             val heightPx = constraints.maxHeight.toFloat()
             val sheetDrag = Modifier.pointerInput(Unit) {
                 val tracker = VelocityTracker()
@@ -233,8 +255,52 @@ private fun Shell(openNowPlaying: Int) {
                 }
             }
 
-            // The app, which recedes into a card while Now Playing is up.
-            Box(
+            val tabPages: @Composable () -> Unit = {
+                key(tab) {
+                    holder.SaveableStateProvider("tab:${tab.name}") {
+                        StackHost(stacks.getValue(tab), holder, active = true) { route -> Screen(route) }
+                    }
+                }
+            }
+
+            // Android back at the root of a tab: unfolded, back to Playing; on a phone, back to Library.
+            val atRoot = stacks.getValue(tab).entries.size == 1
+            androidx.activity.compose.BackHandler(enabled = atRoot && !tabletop && (if (split) !playingPane else !sheetShown && tab != Tab.Library)) {
+                if (split) playingPane = true else tab = Tab.Library
+            }
+
+            if (split) {
+                val rail = 76.dp
+                val panes = maxWidth - rail
+                // The stems or tab side gets a little more than Now Playing, as on iOS.
+                val npWidth = (panes * 0.47f).coerceAtLeast(290.dp)
+                val first = if (swapped) npWidth else panes - npWidth
+                val side: @Composable (Modifier) -> Unit = { m ->
+                    Box(m) {
+                        if (playingPane) Box(Modifier.fillMaxSize().padding(top = 14.dp)) { StemsPane(bottomPad = navBottom + 12.dp) }
+                        else tabPages()
+                    }
+                }
+                val np: @Composable (Modifier) -> Unit = { m ->
+                    Box(m) {
+                        NowPlayingScreen(
+                            onClose = {}, dragModifier = Modifier, layout = NpLayout.Docked,
+                            mixerOn = playingPane, onMixer = { playingPane = !playingPane },
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxSize().background(c.bg).windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))) {
+                    if (swapped) { np(Modifier.width(first).fillMaxHeight()); side(Modifier.weight(1f).fillMaxHeight()) }
+                    else { side(Modifier.width(first).fillMaxHeight()); np(Modifier.weight(1f).fillMaxHeight()) }
+                    SideRail(
+                        Modifier.width(rail).fillMaxHeight(), playingPane, tab,
+                        onPlaying = { playingPane = true },
+                        onTab = { t -> if (!playingPane && t == tab) stacks.getValue(t).popToRoot() else { tab = t; playingPane = false } },
+                        onSwap = { g.settings.wideSwapped.value = !swapped },
+                    )
+                }
+            } else Box(
+                // The app, which recedes into a card while Now Playing is up.
                 Modifier.fillMaxSize()
                     .graphicsLayer {
                         val p = sheet.progress
@@ -251,11 +317,7 @@ private fun Shell(openNowPlaying: Int) {
                         if (p > 0f) drawRect(Color.Black.copy(alpha = 0.4f * p))
                     },
             ) {
-                key(tab) {
-                    holder.SaveableStateProvider("tab:${tab.name}") {
-                        StackHost(stacks.getValue(tab), holder, active = true) { route -> Screen(route) }
-                    }
-                }
+                tabPages()
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                     if (current != null) MiniPlayer(onOpen = { sheet.animateTo(1f) }, dragModifier = miniDrag)
                     TabBar(tab, navBottom) { t ->
@@ -264,7 +326,20 @@ private fun Shell(openNowPlaying: Int) {
                 }
             }
 
-            if (sheetShown) {
+            if (split) Unit
+            else if (tabletop) TabletopPlayer(fold.horizontalAt ?: (maxHeight / 2))
+            else if (sheetShown) {
+                // Predictive back slides the card down with the gesture; release to dismiss.
+                // Registered before the card, so the card's own back (closing lyrics, say) goes first.
+                PredictiveBackHandler(enabled = sheetShown) { events ->
+                    try {
+                        events.collect { e -> sheet.snap(1f - 0.3f * e.progress) }
+                        sheet.animateTo(0f, spec = tween(220))
+                    } catch (e: CancellationException) {
+                        sheet.animateTo(1f)
+                        throw e
+                    }
+                }
                 Box(
                     Modifier.fillMaxSize().padding(top = statusTop + 6.dp)
                         .graphicsLayer {
@@ -274,16 +349,6 @@ private fun Shell(openNowPlaying: Int) {
                         },
                 ) {
                     NowPlayingScreen(onClose = { sheet.animateTo(0f) }, dragModifier = sheetDrag)
-                }
-                // Predictive back slides the card down with the gesture; release to dismiss.
-                PredictiveBackHandler(enabled = sheetShown) { events ->
-                    try {
-                        events.collect { e -> sheet.snap(1f - 0.3f * e.progress) }
-                        sheet.animateTo(0f, spec = tween(220))
-                    } catch (e: CancellationException) {
-                        sheet.animateTo(1f)
-                        throw e
-                    }
                 }
             }
 
@@ -306,16 +371,7 @@ private fun TabBar(selected: Tab, navBottom: androidx.compose.ui.unit.Dp, onSele
                     Modifier.weight(1f).height(50.dp).tappable { onSelect(t) }.padding(top = 5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Icon(
-                        when (t) {
-                            Tab.Library -> Sym.library
-                            Tab.Playlists -> Sym.noteList
-                            Tab.Search -> Sym.search
-                            Tab.Downloads -> Sym.download
-                            Tab.Settings -> Sym.gear
-                        },
-                        col, size = 26.dp,
-                    )
+                    Icon(tabIcon(t), col, size = 26.dp)
                     Spacer(Modifier.height(2.dp))
                     Txt(t.label, Type.caption2.copy(fontSize = 10.sp), color = col, weight = FontWeight.Medium)
                 }

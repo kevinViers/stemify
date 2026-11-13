@@ -141,7 +141,7 @@ private fun ActionSheet(title: String?, actions: List<SheetAction>, dismiss: () 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = shown.value }.background(c.scrim).tappable { close() })
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp)
+            Modifier.align(Alignment.BottomCenter).widthIn(max = 460.dp).fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp)
                 .graphicsLayer { translationY = (1f - shown.value) * size.height * 1.1f },
         ) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.elevated).heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {

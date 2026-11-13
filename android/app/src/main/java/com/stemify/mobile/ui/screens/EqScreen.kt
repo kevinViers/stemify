@@ -1,6 +1,19 @@
 package com.stemify.mobile.ui.screens
 
 import androidx.compose.foundation.Canvas
+import com.stemify.mobile.ui.components.pressFade
+import com.stemify.mobile.ui.components.IconButton
+import com.stemify.mobile.ui.components.TextButton
+import com.stemify.mobile.ui.components.SwipeToDelete
+import com.stemify.mobile.ui.components.SwipeState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,34 +91,7 @@ fun EqScreen() {
         if (profile == null) 0f else profile.preamp + if (state.antiClip) EqMath.autoPreampDb(chain, profile.preamp) else 0f
     }
 
-    fun profileMenu(p: EqProfile) {
-        overlays.actions(p.name, buildList {
-            if (device !in p.devices) add(SheetAction("Use for ${device.label}") { eq.link(p.id, device, true) })
-            else add(SheetAction("Unlink from ${device.label}") { eq.link(p.id, device, false) })
-            if (state.defaultId != p.id) add(SheetAction("Make Default") { eq.setDefault(p.id) })
-            add(SheetAction("Rename…") { overlays.prompt("Rename Profile", null, p.name, "Save") { eq.rename(p.id, it) } })
-            add(SheetAction("Duplicate") { eq.create("${p.name} Copy", p) })
-            if (state.profiles.size > 1) add(SheetAction("Delete Profile", destructive = true) {
-                overlays.confirm("Delete “${p.name}”?", null, "Delete") { eq.delete(p.id) }
-            })
-        })
-    }
-
-    fun profilesSheet() {
-        overlays.actions("Profiles", buildList {
-            state.profiles.forEach { p ->
-                val links = p.devices.joinToString { it.label }
-                add(SheetAction((if (active?.id == p.id) "✓ " else "") + p.name + if (links.isNotEmpty()) " ($links)" else "") { eq.select(p.id) })
-            }
-            add(SheetAction("New Profile…") {
-                overlays.prompt("New EQ Profile", "Starts from the current curve.", "", "Create", "e.g. Sony WH-1000XM5") { name ->
-                    val p = eq.create(name, profile)
-                    eq.link(p.id, device, true)
-                }
-            })
-            profile?.let { p -> add(SheetAction("Manage “${p.name}”…") { profileMenu(p) }) }
-        })
-    }
+    val profileMenu = rememberProfileMenu()
 
     // One screen, no scrolling: profile management and presets live in sheets.
     Page(remote?.takeIf { "eq" in it.caps }?.let { "${it.device.name} EQ" } ?: "Equalizer", grouped = true, largeTitle = false) {
@@ -135,7 +121,8 @@ fun EqScreen() {
                     Spacer(Modifier.height(6.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         profile.gains.forEachIndexed { i, g ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(32.dp)) {
+                            // Ten equal columns, so the bands fit a narrow (cover) screen too.
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                                 Txt(db(g), Type.caption2.copy(fontFeatureSettings = "tnum"), color = if (g == 0f) c.label2 else c.accent, align = TextAlign.Center)
                                 Spacer(Modifier.height(2.dp))
                                 VerticalBandSlider(g / EQ_MAX_DB, { eq.setGain(profile.id, i, it * EQ_MAX_DB) }, Modifier.height(124.dp))
@@ -154,7 +141,7 @@ fun EqScreen() {
         }
 
         section("profiles", rows = listOf(
-            { Cell("Profile", value = profile?.name ?: "—", chevron = true, onLongClick = { profile?.let { profileMenu(it) } }) { profilesSheet() } },
+            { Cell("Profile", value = profile?.name ?: "—", chevron = true, onLongClick = { profile?.let { profileMenu(it) } }) { nav.push(Route.EqProfiles) } },
             { Cell("Parametric Filters", value = profile?.filters?.let { f -> if (f.isEmpty()) "None" else "${f.count { it.on }} on" } ?: "—", chevron = true) {
                 profile?.let { nav.push(Route.EqFilters(it.id)) }
             } },
@@ -163,5 +150,82 @@ fun EqScreen() {
                 overlays.actions("Load Preset", EQ_PRESETS.map { (name, gains) -> SheetAction(name) { eq.setGains(p.id, gains) } })
             } },
         ))
+    }
+}
+
+/** A profile's actions: link to the current output, make default, rename, duplicate, delete. */
+@Composable
+private fun rememberProfileMenu(): (EqProfile) -> Unit {
+    val eq = App.graph.eq
+    val overlays = LocalOverlays.current
+    val state by eq.state.collectAsState()
+    val device by eq.device.collectAsState()
+    return { p ->
+        overlays.actions(p.name, buildList {
+            if (device !in p.devices) add(SheetAction("Use for ${device.label}") { eq.link(p.id, device, true) })
+            else add(SheetAction("Unlink from ${device.label}") { eq.link(p.id, device, false) })
+            if (state.defaultId != p.id) add(SheetAction("Make Default") { eq.setDefault(p.id) })
+            add(SheetAction("Rename…") { overlays.prompt("Rename Profile", null, p.name, "Save") { eq.rename(p.id, it) } })
+            add(SheetAction("Duplicate") { eq.create("${p.name} Copy", p) })
+            if (state.profiles.size > 1) add(SheetAction("Delete Profile", destructive = true) {
+                overlays.confirm("Delete “${p.name}”?", null, "Delete") { eq.delete(p.id) }
+            })
+        })
+    }
+}
+
+/**
+ * Every EQ profile, as an iOS table: tap one to use it, swipe left (or tap Edit, then the red
+ * minus) to delete it, + for a new one. The last profile can't be deleted.
+ */
+@Composable
+fun EqProfilesScreen() {
+    val eq = App.graph.eq
+    val c = Ios.colors
+    val overlays = LocalOverlays.current
+    val state by eq.state.collectAsState()
+    val device by eq.device.collectAsState()
+    val active by eq.active.collectAsState()
+    val profileMenu = rememberProfileMenu()
+    var editing by remember { mutableStateOf(false) }
+    val canDelete = state.profiles.size > 1
+    LaunchedEffect(canDelete) { if (!canDelete) editing = false }
+
+    Page("Profiles", grouped = true, largeTitle = false, trailing = {
+        if (canDelete) TextButton(if (editing) "Done" else "Edit", { editing = !editing }, bold = editing)
+        if (!editing) IconButton(Sym.plus, {
+            overlays.prompt("New EQ Profile", "Starts from the current curve.", "", "Create", "e.g. Sony WH-1000XM5") { name ->
+                val p = eq.create(name, active)
+                eq.link(p.id, device, true)
+            }
+        })
+    }) {
+        section(
+            "profiles",
+            footer = if (canDelete) "Swipe left on a profile to delete it." else "Add another profile to be able to delete this one.",
+            rows = state.profiles.map<EqProfile, @Composable () -> Unit> { p ->
+                {
+                    val swipe = remember(p.id) { SwipeState() }
+                    LaunchedEffect(editing) { if (!editing) swipe.close() }
+                    val notes = listOfNotNull(
+                        "Default".takeIf { state.defaultId == p.id },
+                        p.devices.joinToString { it.label }.ifEmpty { null },
+                        p.filters.size.takeIf { it > 0 }?.let { "$it filter${if (it == 1) "" else "s"}" },
+                    ).joinToString(" · ").ifEmpty { null }
+                    SwipeToDelete(swipe, onDelete = { eq.delete(p.id) }, enabled = canDelete) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (editing) {
+                                Box(
+                                    Modifier.padding(start = 16.dp).size(22.dp).clip(CircleShape).background(c.red).pressFade { swipe.reveal() },
+                                    contentAlignment = Alignment.Center,
+                                ) { Box(Modifier.size(10.dp, 2.dp).background(Color.White)) }
+                            }
+                            Cell(p.name, Modifier.weight(1f), subtitle = notes, checked = active?.id == p.id,
+                                onLongClick = { profileMenu(p) }) { if (editing) swipe.reveal() else eq.select(p.id) }
+                        }
+                    }
+                }
+            },
+        )
     }
 }
