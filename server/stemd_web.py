@@ -14,11 +14,18 @@ Standard library only. stemd keeps a State up to date as it works; serve() answe
   POST /api/tracks             {"action": "next"|"enqueue"|"unqueue"|"exclude"|"retry"|"restem", "rels": [...]}
 
 POSTs must be sent as Content-Type: application/json.
+
+The page is for browsers on the home network, so it is guarded against other websites: it
+can't be framed, and requests whose Host header is a public-looking domain are refused (a
+hostile site that re-points its own domain at this server would otherwise count as the same
+site and could press the buttons). Addresses, single-word names and .local-style names always
+work; a real domain in front of it (a reverse proxy) is allowed with UI_HOSTS.
 """
 
 import collections
 import gzip
 import hmac
+import ipaddress
 import json
 import os
 import shutil
@@ -30,6 +37,34 @@ from urllib.parse import parse_qs, urlsplit
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stemd_ui.html")
 MAX_BODY = 4 << 20
+REQUEST_TIMEOUT = 30  # seconds a browser gets to send a request, or to sit idle between two
+LOCAL_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain", ".localhost")
+# No page may frame this one (clickjacking), and nothing loads from anywhere else.
+PAGE_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                               "img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+def host_allowed(header, extra=()):
+    """Whether a Host header names this server the way a browser on the home network would."""
+    host = (header or "").strip().lower()
+    if not host:
+        return True  # HTTP/1.0 and scripts; browsers always send one
+    if host.startswith("["):
+        host = host[1:].split("]")[0]
+    elif host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+    host = host.rstrip(".")
+    if "*" in extra or host in extra or host == "localhost" or "." not in host or host.endswith(LOCAL_SUFFIXES):
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 
 class State:
@@ -162,8 +197,10 @@ class Gpu:
             return self.value
 
 
-def serve(state, actions, port, token=""):
-    """Answers the page on port in a background thread. actions: name -> callable (see stemd.py)."""
+def serve(state, actions, port, token="", hosts=()):
+    """Answers the page on port in a background thread. actions: name -> callable (see stemd.py).
+    hosts: extra names the page may be opened by (see host_allowed); "*" allows any."""
+    hosts = tuple(h.strip().lower().rstrip(".") for h in hosts if h.strip())
     gpu = Gpu()
     lib_cache = {"key": None, "body": None}
     lib_lock = threading.Lock()
@@ -179,6 +216,7 @@ def serve(state, actions, port, token=""):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "stemd"
+        timeout = REQUEST_TIMEOUT  # a connection that never finishes its request would hold a thread for good
 
         def log_message(self, *_):
             pass
@@ -195,6 +233,7 @@ def serve(state, actions, port, token=""):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", cache)
+            self.send_header("X-Content-Type-Options", "nosniff")
             if gz:
                 self.send_header("Content-Encoding", "gzip")
             for k, v in (extra or {}).items():
@@ -205,6 +244,14 @@ def serve(state, actions, port, token=""):
 
         def _error(self, code, msg):
             self._send(code, {"error": msg})
+
+        def _host_ok(self):
+            if host_allowed(self.headers.get("Host"), hosts):
+                return True
+            self.close_connection = True
+            self._error(403, "stemd doesn't answer to this address. Open it by IP address or local name, "
+                             "or add this name to UI_HOSTS.")
+            return False
 
         def _authorized(self, query):
             if not token:
@@ -230,16 +277,22 @@ def serve(state, actions, port, token=""):
             self.do_GET()
 
         def do_GET(self):
+            if not self._host_ok():
+                return
             url = urlsplit(self.path)
             q = parse_qs(url.query)
             if not self._authorized(q):
                 return self._error(401, "this stemd needs ?token=")
             try:
                 if url.path in ("/", "/index.html"):
+                    cookie = {"Set-Cookie": f"stemd_token={token}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly"} if token else {}
+                    if "token" in q:
+                        # The cookie carries it from here on; take it out of the address bar,
+                        # the history and anything the page might link to.
+                        return self._send(303, b"", "text/plain", {**cookie, "Location": "/"})
                     with open(PAGE, "rb") as f:
                         page = f.read()
-                    extra = {"Set-Cookie": f"stemd_token={token}; Path=/; SameSite=Strict; HttpOnly"} if token else None
-                    return self._send(200, page, "text/html; charset=utf-8", extra)
+                    return self._send(200, page, "text/html; charset=utf-8", {**cookie, **PAGE_HEADERS})
                 if url.path == "/api/state":
                     return self._send(200, self._state())
                 if url.path == "/api/library":
@@ -267,6 +320,8 @@ def serve(state, actions, port, token=""):
                 pass
 
         def do_POST(self):
+            if not self._host_ok():
+                return
             url = urlsplit(self.path)
             if not self._authorized(parse_qs(url.query)):
                 return self._error(401, "this stemd needs ?token=")

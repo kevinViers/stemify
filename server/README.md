@@ -51,11 +51,14 @@ curl http://192.168.86.2:8765/api/info
 | `GET /api/index`                                  | every finished song (ETag; 304 when unchanged)  |
 | `GET /api/peaks?key=K&n=256`                      | RMS per stem in `n` buckets, 0..1000            |
 | `POST /api/prepare?key=K&fmt=opus&br=256`         | starts the Opus transcodes in the background    |
-| `POST /api/stem` `{"paths": [plex file paths]}`   | Stem Now: stemd separates these next            |
+| `POST /api/stem` `{"paths": [plex file paths]}`   | Stem Now: stemd separates these next (send it as `Content-Type: application/json`) |
 | `GET /file/K/<file>.flac[?fmt=opus&br=256]`       | the stem, with `Range` support                  |
 
 `K` is the song's folder under the stems root, e.g. `1970 - Paranoid/1-02 - Paranoid`.
 The app matches Plex tracks to it by path: the stems folder mirrors the music folder.
+
+The index is sent gzipped to clients that ask for it, and a rescan only re-reads the songs
+whose marker changed, so a big library costs little to keep fresh.
 
 ## Run it anywhere else
 
@@ -124,8 +127,14 @@ unraid's Docker tab), laid out like VLC's playlist window:
 - **Tools > Messages** (Ctrl+M) is the log, **Tools > Media Information** (Ctrl+I) a song's
   stems and paths, **Tools > Preferences** the settings it's running with.
 
-Anyone on the LAN can use it. Set `UI_TOKEN` to require `?token=...` once per browser, or
-`UI_PORT=0` to turn it off.
+Anyone on the LAN can use it. Set `UI_TOKEN` to require `?token=...` once per browser (it's
+kept in a cookie and taken back out of the address), or `UI_PORT=0` to turn it off.
+
+Other websites can't use it through your browser: the page can't be put in a frame, its
+buttons only answer the page itself, and it refuses to be opened under a public-looking
+domain name (a trick for making a hostile site count as this one). Its IP address, a
+one-word name like `tower` and names ending in `.local`, `.lan` or `.home.arpa` always work.
+If you reach it through a reverse proxy under a real domain, list that name in `UI_HOSTS`.
 
 **Stem Now** (hold a song, album, artist or playlist in the app) jumps the queue: stemserve
 writes the request into `state/queue/`, and stemd separates those tracks next, after the
@@ -151,5 +160,6 @@ the app would briefly see no stems.
 | `OVERLAP`, `SEGMENT`, `SHIFTS` | `0.25`, `0`, `0` | as in the desktop app's settings     |
 | `UI_PORT`    | `8766`           | the web page's port; `0` turns it off                |
 | `UI_TOKEN`   | empty            | if set, the page needs `?token=` once per browser    |
+| `UI_HOSTS`   | empty            | extra names the page may be opened by, comma-separated (a reverse proxy's domain); `*` allows any |
 
 `docker build --build-arg TORCH_INDEX=cpu ...` makes a small image without CUDA for testing.

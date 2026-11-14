@@ -1136,8 +1136,10 @@ $("q").placeholder = "Search in " + VIEWS[view].name;
 drawTree(); drawWedge(0); rebuild(); drawArt();
 $("table").focus();
 poll();
-setInterval(poll, 1000);
-setInterval(pollLog, 1000);
+// A tab nobody is looking at asks for nothing (each poll also has stemd ask the GPU how it's doing).
+setInterval(() => { if (!document.hidden) poll(); }, 1000);
+setInterval(() => { if (!document.hidden) pollLog(); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { poll(); pollLog(); } });
 </script>
 </body>
 </html>

@@ -17,10 +17,13 @@ Endpoints (all GET unless noted; add ?token=... or X-Stem-Token when TOKEN is se
   POST /api/stem  {"paths": [...]}           "Stem Now": stemd separates these Plex files next
   /file/<key>/<file>[?fmt=opus&br=160]       the stem itself, with Range support
 
+POST /api/stem must be sent as Content-Type: application/json.
+
 <key> is the track's folder relative to STEMS_DIR, e.g. "Artist/Album/01 Song".
 """
 
 import email.utils
+import gzip
 import hashlib
 import hmac
 import json
@@ -50,9 +53,13 @@ VERSION = 1
 FFMPEG = shutil.which("ffmpeg")
 OPUS_RATES = (64, 96, 128, 160, 192, 256)
 PEAK_RATE = 2000  # Hz the envelope is computed at; plenty for a few hundred bars
-CHUNK = 1 << 20
+REQUEST_TIMEOUT = 30  # seconds a client gets to send its request, or to sit idle between two
+SEND_TIMEOUT = 600  # seconds a download may stall (a paused player with a full buffer) before it's dropped
 
 _pool = ThreadPoolExecutor(max_workers=max(2, (os.cpu_count() or 2) // 2))
+# On-demand transcodes run in the request's own thread; this keeps a burst of them (a new
+# album at a new bitrate) from starting more ffmpegs than the box has cores.
+_ffmpeg_slots = threading.BoundedSemaphore(max(2, os.cpu_count() or 2))
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -66,6 +73,12 @@ def _lock_for(path):
         return _locks.setdefault(path, threading.Lock())
 
 
+def _unlock(path):
+    """Forgets a finished file's lock, so the table doesn't grow with the cache."""
+    with _locks_guard:
+        _locks.pop(path, None)
+
+
 # ---- index ------------------------------------------------------------------
 
 class Index:
@@ -74,15 +87,18 @@ class Index:
         self._scanning = threading.Lock()
         self._at = 0.0
         self._body = b'{"tracks":[]}'
+        self._gzip = gzip.compress(self._body)
         self._etag = '"empty"'
         self._count = 0
         self._by_key: dict[str, dict] = {}
+        self._markers: dict[str, tuple] = {}  # folder -> (marker mtime_ns, marker size, entry)
 
     def get(self):
+        """The index as (JSON, the same gzipped, ETag)."""
         if time.monotonic() - self._at > INDEX_TTL:
             self.refresh()
         with self._lock:
-            return self._body, self._etag
+            return self._body, self._gzip, self._etag
 
     def entry(self, key):
         if time.monotonic() - self._at > INDEX_TTL:
@@ -99,18 +115,36 @@ class Index:
         if not self._scanning.acquire(blocking=self._at == 0):
             return
         try:
-            tracks = []
+            tracks, markers = [], {}
             for root, dirs, files in os.walk(STEMS_DIR):
                 dirs[:] = sorted(d for d in dirs if not d.startswith("."))
                 if MARKER not in files:
                     continue
-                entry = _read_marker(root, set(files))
+                # A finished folder never changes without its marker being rewritten, so one
+                # stat of the marker stands in for reading it and stat-ing every stem again.
+                try:
+                    st = os.stat(os.path.join(root, MARKER))
+                except OSError:
+                    continue
+                files = set(files)
+                hit = self._markers.get(root)
+                if hit and hit[0] == st.st_mtime_ns and hit[1] == st.st_size and all(s["file"] in files for s in hit[2]["stems"]):
+                    entry = hit[2]
+                else:
+                    entry = _read_marker(root, files)
                 if entry:
                     tracks.append(entry)
+                    markers[root] = (st.st_mtime_ns, st.st_size, entry)
+            self._markers = markers
             tracks.sort(key=lambda t: t["key"].casefold())
             body = json.dumps({"version": VERSION, "tracks": tracks}, separators=(",", ":")).encode()
+            if body == self._body:  # nothing new: keep the ETag and the gzipped copy
+                self._at = time.monotonic()
+                return
+            packed = gzip.compress(body, 6)
             with self._lock:
                 self._body = body
+                self._gzip = packed
                 self._etag = '"%s"' % hashlib.sha1(body).hexdigest()[:20]
                 self._count = len(tracks)
                 self._by_key = {t["key"]: t for t in tracks}
@@ -127,9 +161,11 @@ def _read_marker(folder, files):
         return None
     key = os.path.relpath(folder, STEMS_DIR).replace(os.sep, "/")
     stems = []
-    for s in meta.get("stems", []):
-        name, fname = s.get("name"), s.get("file")
-        if not name or not fname or fname not in files:
+    if not isinstance(meta, dict):
+        return None
+    for s in meta.get("stems") or []:
+        name, fname = (s.get("name"), s.get("file")) if isinstance(s, dict) else (None, None)
+        if not isinstance(name, str) or not isinstance(fname, str) or not name or fname not in files:
             continue
         try:
             st = os.stat(os.path.join(folder, fname))
@@ -160,7 +196,10 @@ INDEX = Index()
 
 def _resolve(key, fname):
     """Absolute path of a stem file, or None if it escapes STEMS_DIR or is missing."""
-    path = os.path.realpath(os.path.join(STEMS_DIR, key, fname))
+    try:
+        path = os.path.realpath(os.path.join(STEMS_DIR, key, fname))
+    except ValueError:  # a NUL in the name
+        return None
     if not path.startswith(STEMS_DIR + os.sep) or not path.lower().endswith(".flac"):
         return None
     return path if os.path.isfile(path) else None
@@ -178,18 +217,33 @@ def transcode(src, br):
     if os.path.exists(out):
         os.utime(out)  # for LRU-ish cleanup by mtime
         return out
-    with _lock_for(out):
-        if os.path.exists(out):
+    try:
+        with _lock_for(out):
+            if os.path.exists(out):
+                return out
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            tmp = f"{out}.{threading.get_ident()}.part"
+            with _ffmpeg_slots:
+                t0 = time.monotonic()
+                try:
+                    subprocess.run([FFMPEG, "-nostdin", "-v", "error", "-y", "-i", src, "-map", "0:a:0",
+                                    "-c:a", "libopus", "-b:a", f"{br}k", "-vbr", "on", "-application", "audio",
+                                    "-map_metadata", "-1", "-f", "ogg", tmp], check=True, timeout=600)
+                except BaseException:
+                    _remove(tmp)  # a failed or timed-out encode leaves a stub behind otherwise
+                    raise
+            os.replace(tmp, out)
+            log(f"opus {br}k {os.path.basename(src)} in {time.monotonic() - t0:.1f}s")
             return out
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        tmp = out + ".part"
-        t0 = time.monotonic()
-        subprocess.run([FFMPEG, "-nostdin", "-v", "error", "-y", "-i", src, "-map", "0:a:0",
-                        "-c:a", "libopus", "-b:a", f"{br}k", "-vbr", "on", "-application", "audio",
-                        "-map_metadata", "-1", "-f", "ogg", tmp], check=True, timeout=600)
-        os.replace(tmp, out)
-        log(f"opus {br}k {os.path.basename(src)} in {time.monotonic() - t0:.1f}s")
-        return out
+    finally:
+        _unlock(out)
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _envelope(src, n, duration):
@@ -222,22 +276,26 @@ def peaks(entry, n):
     if os.path.exists(out):
         with open(out, "rb") as f:
             return f.read()
-    with _lock_for(out):
-        if os.path.exists(out):
-            with open(out, "rb") as f:
-                return f.read()
-        t0 = time.monotonic()
-        jobs = {s["name"]: _pool.submit(_envelope, os.path.join(folder, s["file"]), n, entry.get("duration"))
-                for s in entry["stems"]}
-        body = json.dumps({"key": entry["key"], "n": n, "duration": entry.get("duration"),
-                           "stems": {name: job.result() for name, job in jobs.items()}},
-                          separators=(",", ":")).encode()
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        with open(out + ".part", "wb") as f:
-            f.write(body)
-        os.replace(out + ".part", out)
-        log(f"peaks {entry['key']} in {time.monotonic() - t0:.1f}s")
-        return body
+    try:
+        with _lock_for(out):
+            if os.path.exists(out):
+                with open(out, "rb") as f:
+                    return f.read()
+            t0 = time.monotonic()
+            jobs = {s["name"]: _pool.submit(_envelope, os.path.join(folder, s["file"]), n, entry.get("duration"))
+                    for s in entry["stems"]}
+            body = json.dumps({"key": entry["key"], "n": n, "duration": entry.get("duration"),
+                               "stems": {name: job.result() for name, job in jobs.items()}},
+                              separators=(",", ":")).encode()
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            tmp = f"{out}.{threading.get_ident()}.part"
+            with open(tmp, "wb") as f:
+                f.write(body)
+            os.replace(tmp, out)
+            log(f"peaks {entry['key']} in {time.monotonic() - t0:.1f}s")
+            return body
+    finally:
+        _unlock(out)
 
 
 # ---- HTTP -------------------------------------------------------------------
@@ -245,6 +303,8 @@ def peaks(entry, n):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = f"stemserve/{VERSION}"
+    # A connection that never finishes its request (or sits idle) would hold a thread for good.
+    timeout = REQUEST_TIMEOUT
 
     def log_message(self, fmt, *args):
         if os.environ.get("VERBOSE"):
@@ -260,6 +320,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -292,10 +353,14 @@ class Handler(BaseHTTPRequestHandler):
                     "ffmpeg": bool(FFMPEG), "opus": list(OPUS_RATES) if FFMPEG else [],
                     "stemNow": os.access(QUEUE_DIR, os.W_OK)}).encode())
             if path == "/api/index":
-                body, etag = INDEX.get()
+                body, packed, etag = INDEX.get()
                 if self.headers.get("If-None-Match") == etag:
                     return self._send(304, headers={"ETag": etag})
-                return self._send(200, body, headers={"ETag": etag, "Cache-Control": "no-cache"})
+                headers = {"ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding"}
+                # A big library's index is megabytes of repeated paths; gzipped it's a tenth.
+                if "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+                    body, headers["Content-Encoding"] = packed, "gzip"
+                return self._send(200, body, headers=headers)
             if path == "/api/peaks":
                 return self._peaks(query)
             if path == "/api/prepare":
@@ -336,6 +401,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, peaks(entry, n), headers={"Cache-Control": "max-age=86400"})
 
     def _prepare(self, query):
+        if self.command != "POST":
+            return self._error(405, "POST to start transcodes")
         entry = self._entry(query)
         if entry is None:
             return
@@ -351,6 +418,10 @@ class Handler(BaseHTTPRequestHandler):
         """Hands a list of Plex file paths to stemd, which separates them before the rest."""
         if self.command != "POST":
             return self._error(405, "POST a JSON body: {\"paths\": [...]}")
+        # A page on another site can make a browser POST here, but not with this type (that
+        # needs a preflight this server never answers), so it can't queue work on the GPU.
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self._error(415, "expected Content-Type: application/json")
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
@@ -417,6 +488,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("ETag", etag)
         self.send_header("Last-Modified", email.utils.formatdate(st.st_mtime, usegmt=True))
         self.send_header("Cache-Control", "max-age=31536000, immutable")
@@ -428,18 +500,22 @@ class Handler(BaseHTTPRequestHandler):
         # The headers have gone out, so nothing that fails from here on can be reported: a
         # second response would land in the middle of the body. Drop the connection instead.
         left = length
+        self.connection.settimeout(SEND_TIMEOUT)
         try:
             with open(path, "rb") as f:
-                f.seek(start)
-                while left > 0:
-                    buf = f.read(min(CHUNK, left))
-                    if not buf:
-                        break
-                    self.wfile.write(buf)
-                    left -= len(buf)
+                self.wfile.flush()
+                # The kernel copies the file straight to the socket (sendfile), so a FLAC
+                # stem never passes through Python; it falls back to read/send where it can't.
+                left -= self.connection.sendfile(f, start, length) if length else 0
         except OSError as e:
-            if not isinstance(e, (BrokenPipeError, ConnectionResetError)):
+            if not isinstance(e, (BrokenPipeError, ConnectionResetError, TimeoutError)):
                 log("error", self.path, repr(e))
+            left = left or -1  # how much went out is unknown
+        finally:
+            try:
+                self.connection.settimeout(REQUEST_TIMEOUT)
+            except OSError:
+                pass
         if left:
             self.close_connection = True
 

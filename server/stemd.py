@@ -27,6 +27,8 @@ Settings (environment):
   OVERLAP / SEGMENT / SHIFTS   as in the desktop app's settings
   UI_PORT     8766             the web page; 0 turns it off
   UI_TOKEN    (empty)          if set, the page needs ?token= once
+  UI_HOSTS    (empty)          extra names the page may be opened by, comma-separated; only
+                               needed for a real domain (a reverse proxy). * allows any
 """
 
 import collections
@@ -62,6 +64,7 @@ SHIFTS = int(os.environ.get("SHIFTS", "0"))
 QUEUE_DIR = os.environ.get("QUEUE_DIR", os.path.join(STATE_DIR, "queue"))
 UI_PORT = int(os.environ.get("UI_PORT", "8766"))
 UI_TOKEN = os.environ.get("UI_TOKEN", "")
+UI_HOSTS = os.environ.get("UI_HOSTS", "").split(",")
 FAILED_PATH = os.path.join(STATE_DIR, "failed.json")
 PAUSED_PATH = os.path.join(STATE_DIR, "paused")  # exists while paused from the page, so a restart stays paused
 QUEUE_POLL_S = 5  # how often an idle stemd looks for Stem Now requests
@@ -763,7 +766,7 @@ def main():
     failed = Failed()
     if UI_PORT:
         try:
-            stemd_web.serve(STATE, track_actions(failed), UI_PORT, UI_TOKEN)
+            stemd_web.serve(STATE, track_actions(failed), UI_PORT, UI_TOKEN, UI_HOSTS)
             log(f"page on port {UI_PORT}")
         except OSError as e:
             log(f"WARNING: no page, port {UI_PORT}: {e}")
