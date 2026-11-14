@@ -14,6 +14,12 @@ If you've signed in to Stemify Player, Stemify Mobile starts from its Plex accou
 folders. Otherwise: **Library → Connect** (or Settings → Plex), enter the 4-character code at
 plex.tv/link, and pick your music library. Settings → Stem Server should say "Online".
 
+Away from home, Plex still works: the address in Settings → Plex is your server's LAN address, and
+when it doesn't answer, Stemify finds the server through plex.tv (its public address, then Plex's
+relay), like Plex's own apps, as long as Remote Access is on in Plex's settings. The Plex screen's
+Connection line says Local, Remote, Plex Relay or Not Reachable. Stems still need the stem server to
+be reachable.
+
 ## What's here
 
 Everything from the phone app (see the main README), with desktop habits added:

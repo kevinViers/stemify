@@ -12,10 +12,16 @@ DEFAULTS = {
     "plexUrl": "http://192.168.86.2:32400",
     "plexToken": "",
     "plexUser": "",
+    # The server's id, and its connections as plex.tv listed them ({"kind": local|remote|relay, "uri"}).
+    "plexMachineId": "",
+    "plexConnections": [],
+    "plexConnectionsAt": 0,
     "musicSection": "",
     "sectionLocations": [],
     "stemUrl": "http://192.168.86.2:8765",
     "stemToken": "",
+    # How stems come from stemserve when the share isn't mounted: "high" (Opus 256) or "lossless" (FLAC).
+    "stemQuality": "high",
     # The unraid shares, mounted here; files play straight from them when present.
     "stemsDir": "/var/mnt/unraid/Music/Stems",
     "musicDir": "/var/mnt/unraid/Music/Actual music/Flacs",

@@ -182,6 +182,8 @@ fun PlexAccountScreen() {
     val pin = rememberInEntry("pin") { PinState() }
     var sections by rememberInEntry("sections") { mutableStateOf<List<MusicSection>?>(null) }
     var testing by remember { mutableStateOf(false) }
+    val link by g.plexRoute.link.collectAsState()
+    LaunchedEffect(token) { if (token.isNotEmpty()) runCatching { g.plexRoute.resolve() } }
 
     suspend fun finish(newToken: String) {
         s.plexUrl.value = url.trim().trimEnd('/')
@@ -217,8 +219,9 @@ fun PlexAccountScreen() {
     }
 
     Page("Plex", grouped = true) {
-        section("server", header = "Server", footer = "Your server's LAN address (port 32400).", rows = listOf(
+        section("server", header = "Server", footer = "Your server's LAN address (port 32400). Away from home, Stemify finds the server through plex.tv, like Plex's own apps, when Remote Access is on in Plex's settings.", rows = listOf(
             { FieldCell("Address", url, { url = it }, "http://192.168.86.2:32400") },
+            { Cell("Connection", value = if (token.isEmpty()) "—" else link.label) },
             {
                 Cell(if (testing) "Testing…" else "Test Connection", titleColor = c.accent) {
                     testing = true

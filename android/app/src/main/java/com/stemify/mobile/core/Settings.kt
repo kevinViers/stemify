@@ -48,8 +48,8 @@ class Pref<T>(
         }
 }
 
-class Settings(context: Context) {
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+class Settings(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
 
     private fun string(key: String, def: String) =
         Pref(prefs, key, def, { k, d -> getString(k, d) ?: d }, { k, v -> putString(k, v) })
@@ -59,6 +59,9 @@ class Settings(context: Context) {
 
     private fun int(key: String, def: Int) =
         Pref(prefs, key, def, { k, d -> getInt(k, d) }, { k, v -> putInt(k, v) })
+
+    private fun long(key: String, def: Long) =
+        Pref(prefs, key, def, { k, d -> getLong(k, d) }, { k, v -> putLong(k, v) })
 
     private fun float(key: String, def: Float) =
         Pref(prefs, key, def, { k, d -> getFloat(k, d) }, { k, v -> putFloat(k, v) })
@@ -73,6 +76,10 @@ class Settings(context: Context) {
     val plexToken = string("plexToken", "")
     val plexUser = string("plexUser", "")
     val plexMachineId = string("plexMachineId", "")
+    /** The server's connections from plex.tv, one "Local|Remote|Relay <uri>" per line, best first. */
+    val plexConnections = string("plexConnections", "")
+    /** When [plexConnections] was last fetched (epoch ms). */
+    val plexConnectionsAt = long("plexConnectionsAt", 0L)
     val musicSection = string("musicSection", "")
     val musicSectionTitle = string("musicSectionTitle", "")
     val stemUrl = string("stemUrl", "http://192.168.86.2:8765")

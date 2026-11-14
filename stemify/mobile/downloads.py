@@ -7,7 +7,6 @@ import os
 import shutil
 import threading
 import time
-import urllib.request
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
@@ -256,7 +255,7 @@ class Downloads(QObject):
             if not url:
                 raise OSError("Not reachable")
             h = {"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") and "X-Plex-Token" not in url else {}
-            with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=60) as r, open(tmp, "wb") as f:
+            with self.plex.open(url, h, timeout=60) as r, open(tmp, "wb") as f:
                 total = int(r.headers.get("Content-Length") or 0)
                 got = 0
                 while chunk := r.read(1 << 20):

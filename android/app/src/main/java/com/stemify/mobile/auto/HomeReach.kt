@@ -21,10 +21,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Whether Plex or stemserve answers right now. In the car the phone is usually on mobile
- * data and the LAN addresses just time out, so the car UI asks this first (a quick probe,
+ * data; with no remote access to Plex the LAN addresses just time out, so the car UI asks this first (a quick probe,
  * remembered briefly) and goes straight to cached data when home is out of reach.
  */
-class HomeReach(http: OkHttpClient, private val settings: Settings, net: Connectivity, scope: CoroutineScope) {
+class HomeReach(
+    http: OkHttpClient,
+    private val settings: Settings,
+    net: Connectivity,
+    scope: CoroutineScope,
+    private val plexRoute: com.stemify.mobile.plex.PlexRoute,
+) {
     private val probe = http.newBuilder()
         .cache(null)
         .connectTimeout(1500, TimeUnit.MILLISECONDS)
@@ -55,7 +61,8 @@ class HomeReach(http: OkHttpClient, private val settings: Settings, net: Connect
     suspend fun reachable(): Boolean = lock.withLock {
         if (System.nanoTime() - checkedAt < TTL_NS && checkedAt != 0L) return lastKnown
         val ok = coroutineScope {
-            val plex = async { answers(settings.plexUrl.value.trimEnd('/') + "/identity") }
+            // Plex at any of its addresses: home Wi-Fi, its public address or Plex's relay.
+            val plex = async { plexRoute.reachable() }
             val stems = async { answers(settings.stemUrl.value.trimEnd('/') + "/api/info") }
             plex.await() || stems.await()
         }

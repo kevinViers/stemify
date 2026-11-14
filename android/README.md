@@ -21,7 +21,20 @@ adb install -r ../Stemify.apk
 2. In the app: **Library → Connect** (or Settings → Plex). Enter the 4-character code at
    plex.tv/link, then pick the **Music** library (`/media/Music/Actual music/Flacs`).
 3. Settings → Stem Server should say "Online" with a song count. The default address is
-   `http://192.168.86.2:8765`.
+   `http://192.168.86.2:8765`. If stemserve has a token, enter it there too.
+
+### Away from home
+
+Plex works anywhere without a VPN, as long as **Remote Access** is on in Plex's own settings.
+Like Plex's apps, Stemify asks plex.tv for the server's addresses (its LAN one, its public
+one, and Plex's relay as a last resort) and uses the first that answers as your server. The
+LAN address in Settings → Plex is tried first, so at home nothing changes. Settings → Plex
+shows the connection in use: **Local**, **Remote** or **Plex Relay**. It looks again when the
+phone changes networks.
+
+Stems come from stemserve, which isn't part of Plex: to reach it away from home, give it a
+public HTTPS address (see `../server/README.md`, "Reach it from outside") and put that
+address and its token in Settings → Stem Server.
 
 Stems are the norm: stemd on the server separates the whole library on its own, and the app
 checks stemserve for new stems every minute. So the exceptions are what's marked: songs show
@@ -99,8 +112,9 @@ that's what is shaped for the knob (`auto/`, `playback/PlaybackService.kt`):
 - **Voice:** hold the wheel's talk button: "play Paranoid on Stemify" (a playlist,
   artist, album or song; artists shuffle). There's no keyboard while driving, so Auto's
   search button is voice too.
-- **Offline:** in the car the phone is on mobile data and Plex/stemserve are LAN-only. The
-  app probes them (1.5 s, re-checked on network changes) and when they're unreachable reads
+- **Offline:** in the car the phone is on mobile data. The app checks whether Plex answers at
+  any of its addresses and whether stemserve does (re-checked on network changes), and when
+  neither does it reads
   library pages from cache only and lists **only songs that will play** (downloaded, or
   fully cached); downloaded songs carry Auto's downloaded mark. Art comes from a local
   `content://` provider fed by what downloads already cached.
@@ -202,5 +216,5 @@ Debug builds include a hook for screenshots and back-gesture testing in the emul
 
 - Plex can't hold an empty playlist, so new playlists start from a song, the queue or a
   selection.
-- Streaming needs the LAN (Plex and stemserve are plain HTTP on 192.168.86.2). Downloads
-  and anything already streamed play offline.
+- Streaming away from home needs Plex's Remote Access (or its relay, which is slow) and a
+  public address for stemserve. Downloads and anything already streamed play offline.

@@ -43,6 +43,7 @@ class Library(QObject):
         self._progress = -1.0
         self._busy = False
         self._done.connect(self._on_done)
+        plex.on_change = self.statusChanged.emit  # the connection kind shows in File > Info
         self._cache = os.path.join(config.CACHE_DIR, "library.json")
         self._load_cache()
         self._rebuild()
@@ -518,7 +519,8 @@ class Library(QObject):
 
     def _get_counts(self):
         return {"songs": len(self.tracks), "stems": sum(1 for t in self.tracks if t.get("stems")),
-                "stemIndex": len(self.stems.index), "stemOnline": self.stems.online}
+                "stemIndex": len(self.stems.index), "stemOnline": self.stems.online,
+                "plexLink": self.plex.link}
 
     tabs = Property("QVariantList", _get_tabs, notify=tabsChanged)
     current = Property(int, _get_current, setCurrent, notify=tabsChanged)

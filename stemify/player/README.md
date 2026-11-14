@@ -15,6 +15,12 @@ code at plex.tv/link. It picks the music library at `…/Flacs`. Until then the 
 from the stem server's index alone (artist / album / song from the stems folders), so every
 separated song is already playable.
 
+Away from home, Plex still works: the Plex server address you set is your server's LAN address, and
+when it doesn't answer, Stemify asks plex.tv for the server's other addresses (its public one, then
+Plex's relay), like Plex's own apps do. This needs Remote Access turned on in Plex's settings. File →
+Info shows how it's connected: Local, Remote, Plex Relay or Not Reachable. Stems still come from the
+stem server, which has to be reachable on its own.
+
 ## Where things are
 
 | Excel | Here |
@@ -33,7 +39,7 @@ separated song is already playable.
 | Format Mix task pane | Now playing, a sparkline of the song to seek on, and the stems as a column chart: drag a column to set its level, double-click for 0 dB, M / S below. Under it, a live spectrum of each stem after its fader, redrawn every frame (240Hz on a 240Hz panel) |
 | Green triangle in a cell | The song that's playing |
 | `#GETTING_DATA` | A playlist loading from Plex |
-| File → Info / Account / Options | Library and server status, Plex sign-in, server addresses and folders |
+| File → Info / Account / Options | Library and server status, Plex sign-in, server addresses, token, stem quality and folders |
 
 Keys: Space play/pause, Ctrl+←/→ previous/next, Ctrl+Shift+←/→ 10 seconds back/ahead, V vocals on/off, arrows/Shift+arrows select,
 Ctrl+C copies cells as text, Ctrl+Q quits. The media keys, the desktop's media controls and
@@ -43,7 +49,8 @@ KDE Connect on the phone work through MPRIS.
 
 - **Stems** come straight off the `Stems` share (`/var/mnt/unraid/Music/Stems`) when it's
   mounted, else they're downloaded from stemserve once into `~/.cache/stemify/player/files`
-  (4 GB, oldest first out). Songs without stems play the original from the music share, or from
+  (4 GB, oldest first out), as Opus 256 kbps unless File → Options → Stem quality is set to
+  Lossless FLAC. Songs without stems play the original from the music share, or from
   Plex if the share isn't there.
 - A decoder thread reads every stem about 1.5 s ahead of the playhead, so songs start at once
   and nothing is decoded whole; the audio callback mixes with click-free gain ramps. The fader

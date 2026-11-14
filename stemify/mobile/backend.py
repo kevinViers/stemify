@@ -83,7 +83,7 @@ class Backend(QObject):
     # ---- settings -----------------------------------------------------------------------------
     def _get_settings(self):
         c = self.cfg
-        return {k: c.get(k) for k in EDITABLE | {"plexUser"}} | {"signedIn": self.signed_in, "token": bool(c.get("plexToken"))}
+        return {k: c.get(k) for k in EDITABLE | {"plexUser"}} | {"plexLink": self.plex.link, "signedIn": self.signed_in, "token": bool(c.get("plexToken"))}
 
     settings = Property("QVariantMap", _get_settings, notify=settingsChanged)
     qualities = Property("QVariantList", lambda self: QUALITIES, constant=True)

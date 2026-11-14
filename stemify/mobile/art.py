@@ -38,11 +38,11 @@ class ArtCache:
                 return f.read()
         except OSError:
             pass
-        url = thumb if thumb.startswith("http") else self.plex.art_url(thumb, px)
+        url = thumb if thumb.startswith("http") else self.plex.art_url(thumb, px, home=True)
         if not url:
             return None
         try:
-            with urllib.request.urlopen(url, timeout=15) as r:
+            with self.plex.open(url, timeout=15) as r:
                 data = r.read()
         except (OSError, ValueError):
             return None

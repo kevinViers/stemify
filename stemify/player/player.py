@@ -362,7 +362,10 @@ class Player(QObject):
         if entry:
             stems = {s["name"]: s for s in entry["stems"]}
             names = sort_names(list(stems))
-            paths = [self.server.local_path(entry, stems[n]) or self._download(self.server.file_url(entry, stems[n]), stems[n]["file"])
+            kbps = 0 if self.cfg.get("stemQuality") == "lossless" else 256
+            paths = [self.server.local_path(entry, stems[n])
+                     or self._download(self.server.file_url(entry, stems[n], kbps),
+                                       os.path.splitext(stems[n]["file"])[0] + ".opus" if kbps else stems[n]["file"])
                      for n in names]
             return Source(names, paths), entry
         return Source(["mix"], [self._original_path(track)]), None
@@ -418,8 +421,9 @@ class Player(QObject):
         # being readied to follow), and two downloads sharing one would trip over each other.
         fd, tmp = tempfile.mkstemp(dir=d, suffix=".part")
         try:
-            req = urllib.request.Request(url, headers={"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {})
-            with os.fdopen(fd, "wb") as f, urllib.request.urlopen(req, timeout=30) as r:
+            h = {"X-Stem-Token": self.cfg["stemToken"]} if self.cfg.get("stemToken") else {}
+            # The cache key above is built on the settings address; the request goes to the one that works.
+            with os.fdopen(fd, "wb") as f, self.plex.open(url, h, timeout=30) as r:
                 while chunk := r.read(1 << 20):
                     f.write(chunk)
             os.replace(tmp, path)

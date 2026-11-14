@@ -89,6 +89,7 @@ Rectangle {
                     Prop { k: "Stems index"; v: library.counts.stemIndex.toLocaleString(Qt.locale(), "f", 0) + " songs" }
                     Prop { k: "Stem server"; v: (library.counts.stemOnline === true ? "Online · " : library.counts.stemOnline === false ? "Offline · " : "Checking · ") + settings.get("stemUrl") }
                     Prop { k: "Plex"; v: (library.signedIn ? "Connected · " : "Not connected · ") + settings.get("plexUrl") }
+                    Prop { k: "Plex connection"; v: library.signedIn ? library.counts.plexLink : "—" }
                     Prop { k: "Media keys"; v: bs.win.mprisOk ? "On (MPRIS)" : "Off" }
                 }
             }
@@ -151,6 +152,17 @@ Rectangle {
             T { text: "Connections"; font.pixelSize: 20; color: X.greenText; height: 30 }
             Opt { id: oPlex; label: "Plex server"; key: "plexUrl" }
             Opt { id: oStem; label: "Stem server (stemserve)"; key: "stemUrl" }
+            Opt { id: oToken; label: "Stem server token (if it has one)"; key: "stemToken" }
+            T { text: "Stem quality when the share isn't mounted"; color: X.inkSoft }
+            Row {
+                id: oQuality
+                property string value: settings.get("stemQuality") || "high"
+                function save() { settings.set("stemQuality", value) }
+                spacing: 10
+                OfficeButton { text: "Opus 256 kbps"; primary: oQuality.value !== "lossless"; onClicked: oQuality.value = "high" }
+                OfficeButton { text: "Lossless FLAC"; primary: oQuality.value === "lossless"; onClicked: oQuality.value = "lossless" }
+                Connections { target: bs; function onVisibleChanged() { if (bs.visible) oQuality.value = settings.get("stemQuality") || "high" } }
+            }
             T { text: "Folders"; font.pixelSize: 20; color: X.greenText; height: 40; verticalAlignment: Text.AlignBottom }
             Opt { id: oStems; label: "Stems share (played directly when mounted)"; key: "stemsDir" }
             Opt { id: oMusic; label: "Music share"; key: "musicDir" }
@@ -167,7 +179,7 @@ Rectangle {
                     text: "Save"
                     primary: true
                     onClicked: {
-                        oPlex.save(); oStem.save(); oStems.save(); oMusic.save()
+                        oPlex.save(); oStem.save(); oToken.save(); oQuality.save(); oStems.save(); oMusic.save()
                         library.refresh()
                         bs.win.closeBackstage()
                     }

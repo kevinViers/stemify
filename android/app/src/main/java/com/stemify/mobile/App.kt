@@ -30,6 +30,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.merge
 import okhttp3.Cache
 import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -96,6 +98,10 @@ class Graph(app: App) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val settings = Settings(app)
     val net = Connectivity(app)
+    /** Which address reaches Plex (LAN, public or relay); requests are sent there. */
+    val plexRoute = com.stemify.mobile.plex.PlexRoute(
+        settings, merge(net.online.drop(1), net.unmetered.drop(1)), scope,
+    )
 
     /** Library calls: cached on disk and served from there when the server is unreachable. */
     val apiHttp: OkHttpClient = OkHttpClient.Builder()
@@ -110,12 +116,13 @@ class Graph(app: App) {
     val mediaHttp: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
+        .addInterceptor(plexRoute.interceptor)
         .build()
 
     val imageHttp: OkHttpClient = mediaHttp.newBuilder().readTimeout(20, TimeUnit.SECONDS).build()
 
     /** Is Plex/stemserve answering? Asked by the car UI before every browse, and once at launch. */
-    val reach = HomeReach(mediaHttp, settings, net, scope).also { r -> scope.launch { r.reachable() } }
+    val reach = HomeReach(mediaHttp, settings, net, scope, plexRoute).also { r -> scope.launch { r.reachable() } }
 
     /**
      * Away from home, library GETs read the disk cache without waiting on LAN addresses that
@@ -129,7 +136,7 @@ class Graph(app: App) {
             cached.close()
             chain.withConnectTimeout(2, TimeUnit.SECONDS).proceed(req)
         }
-    }.build()
+    }.addInterceptor(plexRoute.interceptor).build()
 
     val plex = PlexClient(awayHttp, settings)
 

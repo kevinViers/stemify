@@ -10,8 +10,10 @@ Page {
     header: Column {
         width: page.width
         Section {
-            header: "Server"; footer: "Your server's LAN address (port 32400)."
+            header: "Server"
+            footer: "Your server's LAN address (port 32400). Away from home, Stemify finds the server through plex.tv, like Plex's own apps, when Remote Access is on in Plex's settings."
             FieldCell { id: url; label: "Address"; placeholder: "http://192.168.86.2:32400"; text: app.settings.plexUrl || "" }
+            Cell { visible: page.signedIn; title: "Connection"; value: app.settings.plexLink || "Local" }
             Cell {
                 title: page.testing ? "Testing…" : "Test Connection"; titleColor: Ios.accent
                 tap: () => {
