@@ -133,9 +133,12 @@ All three mean the same fix: tick **Unknown sources**, then unplug and plug back
 reloads its app list.
 
 **Installing:** install `Stemify.apk` over USB from a computer (`adb install -r Stemify.apk`),
-not by opening the file on the phone. Newer Android can make you wait 24 hours before it
-installs an app from an unverified developer on the phone itself; installs from a computer
-skip that wait.
+not by opening the file on the phone. Installing an unverified app on the phone itself means
+turning on a phone setting with a 24-hour security wait; installs from a computer skip it.
+
+Don't mix up the two "unknown sources" settings. The phone's own setting (in phone Settings, the
+one with the 24-hour wait) is for installing APKs and isn't needed here. The one the car needs is
+**Android Auto's** checkbox under Auto's **Developer settings**, which takes effect immediately.
 
 Download what you want for the drive while on home Wi-Fi.
 
