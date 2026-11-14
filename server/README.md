@@ -2,7 +2,13 @@
 
 Serves the Stemify stems folder to the Android app: an index of every separated
 song, the stem files with HTTP range support (so the phone can seek and stream), per-stem
-waveforms, and optional Opus transcodes so cached songs take ~1/8 the space.
+waveforms, and Opus versions that take ~1/8 the space of the FLACs.
+
+stemd makes a 256 kbps Opus copy of every stem as it separates the song (`01 Song -
+vocals.opus` next to `01 Song - vocals.flac`), so the apps' default quality (High) starts
+playing straight away instead of waiting for a transcode. Other Opus rates (Standard, Data
+Saver) are still made on first play and kept in `CACHE_DIR`. The FLACs stay: Lossless streams
+them.
 
 One Python file, standard library only. `ffmpeg` is optional; without it you get FLAC
 only and no waveforms.
@@ -59,6 +65,29 @@ The app matches Plex tracks to it by path: the stems folder mirrors the music fo
 
 The index is sent gzipped to clients that ask for it, and a rescan only re-reads the songs
 whose marker changed, so a big library costs little to keep fresh.
+
+### Opus copies for songs separated earlier
+
+Songs separated before stemd made Opus copies get them in the background: each scan, stemd
+checks every finished song and encodes any missing (or older than its FLAC) on the CPU, two
+at a time (`OPUS_THREADS`), while the GPU keeps separating. It logs `opus: making copies…`,
+progress every 100 songs, and a total when it's done. Until a song has its copy, stemserve
+transcodes it on first play as before.
+
+## Reach it from outside
+
+The apps find Plex away from home on their own (through plex.tv), but stemserve needs a
+public address. Without opening a port, a Cloudflare Tunnel does it:
+
+1. Set `TOKEN` (in `docker-compose.yml`) to a long random string and restart stemserve. Every
+   request then needs it, so nobody else can read your stems or queue work for the GPU.
+2. In Cloudflare Zero Trust → Networks → Tunnels → your tunnel → **Public Hostname**, add
+   e.g. `stems.example.com`, type **HTTP**, URL `192.168.86.2:8765`.
+3. In each app's stem server settings, use `https://stems.example.com` and the token. It
+   works at home too.
+
+stemserve marks its responses private, so Cloudflare passes stems through without caching
+them. Leave stemd's page (port 8766) off the tunnel.
 
 ## Run it anywhere else
 
@@ -161,5 +190,6 @@ the app would briefly see no stems.
 | `UI_PORT`    | `8766`           | the web page's port; `0` turns it off                |
 | `UI_TOKEN`   | empty            | if set, the page needs `?token=` once per browser    |
 | `UI_HOSTS`   | empty            | extra names the page may be opened by, comma-separated (a reverse proxy's domain); `*` allows any |
+| `OPUS_THREADS` | `2`            | ffmpegs making Opus copies for songs separated before stemd made them; `0` turns that off (new songs get theirs either way) |
 
 `docker build --build-arg TORCH_INDEX=cpu ...` makes a small image without CUDA for testing.

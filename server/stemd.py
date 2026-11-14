@@ -29,6 +29,8 @@ Settings (environment):
   UI_TOKEN    (empty)          if set, the page needs ?token= once
   UI_HOSTS    (empty)          extra names the page may be opened by, comma-separated; only
                                needed for a real domain (a reverse proxy). * allows any
+  OPUS_THREADS 2               ffmpegs making Opus copies for songs separated before they
+                               existed; 0 turns that off (new songs get theirs either way)
 """
 
 import collections
@@ -46,8 +48,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from stemify.catalog import MODELS_BY_ID  # noqa: E402
-from stemify.library_core import (MARKER, MAX_SECONDS, SOURCE_RANK, duration, is_done, is_share_error,  # noqa: E402
-                                     iter_tracks, signature, write_track)
+from stemify.library_core import (FFMPEG, MARKER, MAX_SECONDS, SOURCE_RANK, duration, encode_opus,  # noqa: E402
+                                     is_done, is_share_error, iter_tracks, missing_opus, signature, write_track)
 import stemd_web  # noqa: E402  (beside this file)
 
 MUSIC_DIR = os.environ.get("MUSIC_DIR", "/music")
@@ -65,6 +67,7 @@ QUEUE_DIR = os.environ.get("QUEUE_DIR", os.path.join(STATE_DIR, "queue"))
 UI_PORT = int(os.environ.get("UI_PORT", "8766"))
 UI_TOKEN = os.environ.get("UI_TOKEN", "")
 UI_HOSTS = os.environ.get("UI_HOSTS", "").split(",")
+OPUS_THREADS = int(os.environ.get("OPUS_THREADS", "2"))
 FAILED_PATH = os.path.join(STATE_DIR, "failed.json")
 PAUSED_PATH = os.path.join(STATE_DIR, "paused")  # exists while paused from the page, so a restart stays paused
 QUEUE_POLL_S = 5  # how often an idle stemd looks for Stem Now requests
@@ -236,6 +239,92 @@ def separate(sep, failed, path, dest, sig, label):
     took = time.monotonic() - t1
     log(f"    done in {took:.0f}s" + (f" ({meta['duration'] / took:.1f}x realtime)" if took else ""))
     return True
+
+
+class OpusBackfill:
+    """Makes the Opus copies (library_core.OPUS_KBPS) for finished songs that lack them, on the
+    CPU in OPUS_THREADS threads of their own (one ffmpeg each), so the GPU keeps separating
+    meanwhile. Each scan hands it every finished folder; one already seen complete is skipped
+    until its marker changes."""
+
+    def __init__(self, threads):
+        self._threads = threads
+        self._ok: dict[str, int] = {}  # folder -> marker mtime_ns when its copies were all there
+        self._todo = collections.deque()
+        self._queued: set[str] = set()
+        self._lock = threading.Lock()
+        self._wake = threading.Condition(self._lock)
+        self._busy = 0  # workers on a folder
+        self._songs = 0  # songs given copies in this run of work
+        self._t0 = 0.0
+        self.made = 0
+
+    def start(self):
+        if self._threads > 0 and FFMPEG:
+            for i in range(self._threads):
+                threading.Thread(target=self._run, name=f"opus-{i}", daemon=True).start()
+        elif self._threads > 0:
+            log("WARNING: no ffmpeg; songs won't get Opus copies")
+
+    def check(self, dest):
+        if self._threads <= 0 or not FFMPEG:
+            return
+        try:
+            m = os.stat(os.path.join(dest, MARKER)).st_mtime_ns
+        except OSError:
+            return
+        with self._lock:
+            if self._ok.get(dest) == m or dest in self._queued:
+                return
+            self._queued.add(dest)
+            self._todo.append((dest, m))
+            self._wake.notify()
+
+    def _run(self):
+        while not stop.is_set():
+            with self._lock:
+                while not self._todo and not stop.is_set():
+                    self._wake.wait(60)
+                if stop.is_set():
+                    return
+                dest, m = self._todo.popleft()
+                self._busy += 1
+            made = False
+            try:
+                pairs = missing_opus(dest)
+                for _, out in pairs:  # left by a stop mid-encode
+                    for stale in glob.glob(glob.escape(os.path.join(dest, f".{os.path.basename(out)}.")) + "*.part"):
+                        os.remove(stale)
+                if pairs:
+                    with self._lock:
+                        if not self._songs and not self._t0:
+                            self._t0 = time.monotonic()
+                            log(f"opus: making copies, {len(self._todo) + self._busy:,} folders to check")
+                for src, out in pairs:
+                    encode_opus(src, out)
+                made = bool(pairs)
+                ok = True
+            except Exception as e:  # noqa: BLE001 - one bad file mustn't stop the rest
+                msg = getattr(e, "stderr", b"") or b""
+                msg = msg.decode(errors="replace").strip().splitlines()[-1:] if isinstance(msg, bytes) else []
+                log(f"opus: {os.path.relpath(dest, STEMS_DIR)}: {msg[0] if msg else e}")
+                ok = not is_share_error(e)  # else tried; again after a restart or a re-stem
+            with self._lock:
+                if ok:
+                    self._ok[dest] = m
+                self._queued.discard(dest)
+                self._busy -= 1
+                if made:
+                    self._songs += 1
+                    self.made += 1
+                    if self._songs % 100 == 0:
+                        log(f"opus: {self._songs:,} songs done, {len(self._todo):,} folders left")
+                if self._t0 and not self._todo and not self._busy:
+                    log(f"opus: made copies for {self._songs:,} songs ({time.monotonic() - self._t0:.0f}s)")
+                    self._songs, self._t0 = 0, 0.0
+
+
+OPUS = OpusBackfill(OPUS_THREADS)
 
 
 # The project was renamed to Stemify; songs separated before that carry the old marker name.
@@ -464,6 +553,7 @@ def run_pass(sep, failed):
         info = done_info(dest)
         if info is not None:
             tracks[rel] = info
+            OPUS.check(dest)
             continue
         try:
             sig = signature(path)
@@ -771,6 +861,7 @@ def main():
         except OSError as e:
             log(f"WARNING: no page, port {UI_PORT}: {e}")
     migrate_markers()
+    OPUS.start()
     STATE.set_phase("starting", "loading the model")
     sep = Separator()
     STATE.info["gpu"] = sep.torch.cuda.get_device_name(sep.device) if sep.device.type == "cuda" else "CPU"

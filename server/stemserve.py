@@ -7,6 +7,7 @@ The stems folder is what stemify.library writes:
 
   <STEMS_DIR>/Artist/Album/01 Song/.stemify.json
   <STEMS_DIR>/Artist/Album/01 Song/01 Song - vocals.flac, ...
+  <STEMS_DIR>/Artist/Album/01 Song/01 Song - vocals.opus, ...   (made by stemd at PREMADE_KBPS)
 
 Endpoints (all GET unless noted; add ?token=... or X-Stem-Token when TOKEN is set):
 
@@ -52,6 +53,9 @@ MARKER = ".stemify.json"
 VERSION = 1
 FFMPEG = shutil.which("ffmpeg")
 OPUS_RATES = (64, 96, 128, 160, 192, 256)
+# stemd writes an Opus copy at this rate beside each FLAC stem (library_core.OPUS_KBPS), so
+# that rate streams with no transcode at play time. Other rates are transcoded and cached.
+PREMADE_KBPS = 256
 PEAK_RATE = 2000  # Hz the envelope is computed at; plenty for a few hundred bars
 REQUEST_TIMEOUT = 30  # seconds a client gets to send its request, or to sit idle between two
 SEND_TIMEOUT = 600  # seconds a download may stall (a paused player with a full buffer) before it's dropped
@@ -211,8 +215,24 @@ def _cache_name(src, tag, ext):
     return os.path.join(CACHE_DIR, tag.split(":")[0], h[:2], h + ext)
 
 
+def premade(src, br):
+    """stemd's Opus copy of src, if it was made at br and is newer than src."""
+    if br != PREMADE_KBPS:
+        return None
+    out = os.path.splitext(src)[0] + ".opus"
+    try:
+        if os.stat(out).st_mtime_ns >= os.stat(src).st_mtime_ns:
+            return out
+    except OSError:
+        pass
+    return None
+
+
 def transcode(src, br):
-    """Path of an Ogg Opus copy of src at br kbps, transcoding it first if needed."""
+    """Path of an Ogg Opus copy of src at br kbps: stemd's own, else transcoded and cached."""
+    hit = premade(src, br)
+    if hit:
+        return hit
     out = _cache_name(src, f"opus:{br}", ".opus")
     if os.path.exists(out):
         os.utime(out)  # for LRU-ish cleanup by mtime
@@ -356,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                 body, packed, etag = INDEX.get()
                 if self.headers.get("If-None-Match") == etag:
                     return self._send(304, headers={"ETag": etag})
-                headers = {"ETag": etag, "Cache-Control": "no-cache", "Vary": "Accept-Encoding"}
+                headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"}
                 # A big library's index is megabytes of repeated paths; gzipped it's a tenth.
                 if "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
                     body, headers["Content-Encoding"] = packed, "gzip"
@@ -398,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             n = max(16, min(4096, int((query.get("n") or ["512"])[0])))
         except ValueError:
             return self._error(400, "n must be a number")
-        self._send(200, peaks(entry, n), headers={"Cache-Control": "max-age=86400"})
+        self._send(200, peaks(entry, n), headers={"Cache-Control": "private, max-age=86400"})
 
     def _prepare(self, query):
         if self.command != "POST":
@@ -410,7 +430,7 @@ class Handler(BaseHTTPRequestHandler):
         if fmt == "opus":
             for s in entry["stems"]:
                 src = _resolve(entry["key"], s["file"])
-                if src:
+                if src and not premade(src, br):
                     _pool.submit(transcode, src, br)
         self._send(202, b'{"ok":true}')
 
@@ -455,7 +475,7 @@ class Handler(BaseHTTPRequestHandler):
         src = _resolve(key, fname)
         if not src:
             return self._error(404, "no such stem")
-        fmt, br = _format(query)
+        fmt, br = _format(query, src)
         path, ctype = (transcode(src, br), "audio/ogg") if fmt == "opus" else (src, "audio/flac")
         self._serve_file(path, ctype)
 
@@ -491,7 +511,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("ETag", etag)
         self.send_header("Last-Modified", email.utils.formatdate(st.st_mtime, usegmt=True))
-        self.send_header("Cache-Control", "max-age=31536000, immutable")
+        # private: behind a CDN or proxy (a Cloudflare tunnel), a shared cache would hand a stem
+        # fetched with the token to a request without one. The apps still keep their copies.
+        self.send_header("Cache-Control", "private, max-age=31536000, immutable")
         if status == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
@@ -520,15 +542,18 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
-def _format(query):
+def _format(query, src=None):
     fmt = (query.get("fmt") or ["flac"])[0]
-    if fmt != "opus" or not FFMPEG:
+    if fmt != "opus":
         return "flac", 0
     try:
         br = int((query.get("br") or ["160"])[0])
     except ValueError:
         br = 160
-    return "opus", min(OPUS_RATES, key=lambda r: abs(r - br))
+    br = min(OPUS_RATES, key=lambda r: abs(r - br))
+    if not FFMPEG and not (src and premade(src, br)):
+        return "flac", 0
+    return "opus", br
 
 
 def main():
