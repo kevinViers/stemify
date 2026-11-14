@@ -114,6 +114,29 @@ Auto hides sideloaded apps until you allow them:
 2. ⋮ menu → **Developer settings** → tick **Unknown sources**.
 3. Plug into the Miata. Stemify is in Auto's app launcher (the grid of icons).
 
+Do this on every phone you take in the car. The setting belongs to the phone, not the car.
+
+**Check it worked:** Auto settings → **Customize launcher** should list Stemify (with Maps,
+YT Music and the rest). If Stemify isn't there, **Unknown sources** is still off. Go back to
+developer settings and check that the box is ticked, not just that the menu opened.
+
+**If Unknown sources is off**, the car treats Stemify as an ordinary phone app. Music still
+plays from the media controls, but tapping Stemify on the car screen gives one of these:
+
+| When | Message |
+|---|---|
+| Parked, phone unlocked | "Opened Stemify on your phone" |
+| Parked, phone locked | "Unlock your phone to use Stemify" |
+| Driving | "Can't use this app while driving" |
+
+All three mean the same fix: tick **Unknown sources**, then unplug and plug back in so Auto
+reloads its app list.
+
+**Installing:** install `Stemify.apk` over USB from a computer (`adb install -r Stemify.apk`),
+not by opening the file on the phone. Newer Android can make you wait 24 hours before it
+installs an app from an unverified developer on the phone itself; installs from a computer
+skip that wait.
+
 Download what you want for the drive while on home Wi-Fi.
 
 ### Testing without the car
@@ -128,6 +151,10 @@ adb forward tcp:5277 tcp:5277
 ```
 
 (It needs libc++, which this host lacks; here it runs in the `dhu-headless` podman image.)
+
+The head unit shows sideloaded apps even when **Unknown sources** is off, so Stemify working
+here doesn't prove it will show up in the real car. Check the setting itself (see above).
+`speed 30` and `restrict all` at the head unit's prompt simulate driving.
 
 ## Folding phones
 

@@ -448,7 +448,12 @@ button is crossed out. The MX-5 is ready for a duet.</i></p>
 **Setting up the car (once):** Android Auto hides sideloaded apps until you allow them. On the
 phone, search Settings for "Android Auto", tap **Version** ten times, then in the ⋮ menu go to
 **Developer settings** and tick **Unknown sources**. Stemify then shows up in Auto's app
-launcher.
+launcher. Do this on every phone you drive with.
+
+If the car says "Opened Stemify on your phone", "Unlock your phone to use Stemify" or "Can't use
+this app while driving", **Unknown sources** is off and the car thinks Stemify is a plain phone
+app. To check, Auto settings → **Customize launcher** should list Stemify. Tick the box, then
+unplug and plug back in. More in [android/README.md](android/README.md#setting-up-the-car-once).
 
 **Testing without a car:** Google's Desktop Head Unit can impersonate the Miata. On the phone,
 start the head unit server from Auto's developer settings, then:
@@ -457,6 +462,9 @@ start the head unit server from Auto's developer settings, then:
 adb forward tcp:5277 tcp:5277
 ~/Android/Sdk/extras/google/auto/desktop-head-unit -c ~/Android/Sdk/extras/google/auto/config/rotary.ini
 ```
+
+The head unit shows Stemify even with **Unknown sources** off, so a pass there doesn't prove
+the real car will show it.
 
 ---
 
