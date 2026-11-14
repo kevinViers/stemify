@@ -26,7 +26,8 @@ def _track(m: dict) -> dict:
     artist = m.get("originalTitle") or m.get("grandparentTitle") or ""
     return {
         "key": str(m.get("ratingKey", "")),
-        "title": m.get("title", ""),
+        # Plex leaves untagged files (old WAV rips) without a title; their file name beats a blank row.
+        "title": m.get("title") or _file_title(part.get("file", "")),
         "artist": artist,
         "albumArtist": m.get("grandparentTitle", ""),
         "album": m.get("parentTitle", ""),
@@ -46,6 +47,11 @@ def _track(m: dict) -> dict:
         "addedAt": m.get("addedAt") or 0,
         "playlistItemID": m.get("playlistItemID"),
     }
+
+
+def _file_title(path: str) -> str:
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name[1:] else name
 
 
 def _album(m: dict) -> dict:
@@ -289,7 +295,9 @@ class Plex:
                          **{"X-Plex-Token": self.token})
 
     def part_url(self, part_key):
-        return f"{self.base}{part_key}?X-Plex-Token={urllib.parse.quote(self.token)}"
+        # Always a path on this server: a key like "@elsewhere/x" glued straight onto the
+        # address would send the request, and the token, to elsewhere.
+        return f"{self.base}/{str(part_key).lstrip('/')}?X-Plex-Token={urllib.parse.quote(self.token)}"
 
     # ---- plex.tv sign-in -----------------------------------------------------------
     def create_pin(self):

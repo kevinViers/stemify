@@ -117,7 +117,7 @@ def main():
     ctx.setContextProperty("engine", engine)
     ctx.setContextProperty("downloads", downloads)
     ctx.setContextProperty("eq", eq)
-    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine, "eq": eq})
+    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine, "eq": eq}, save=lambda: config.save(cfg))
     ctx.setContextProperty("nearby", nearby)
     ctx.setContextProperty("receiver", receiver)
     qml.load(QUrl.fromLocalFile(os.path.join(HERE, "qml", "StemMobile", "Main.qml")))

@@ -33,6 +33,8 @@ class Link(
     /** Controllers ping; receivers answer. */
     private val ping: Boolean,
 ) {
+    /** The longest line taken; receivers keep it small until the other end has been let in. */
+    @Volatile var maxLine = Wire.MAX_LINE
     var onMessage: (JsonObject) -> Unit = {}
     var onClosed: () -> Unit = {}
     private val outbox = Channel<String>(Channel.UNLIMITED)
@@ -45,7 +47,7 @@ class Link(
             try {
                 val reader = input.bufferedReader(Charsets.UTF_8)
                 while (true) {
-                    val line = reader.readLineUpTo(Wire.MAX_LINE) ?: break
+                    val line = reader.readLineUpTo { maxLine } ?: break
                     heard = SystemClock.elapsedRealtime()
                     if (line.isBlank()) continue
                     val msg = runCatching { AppJson.parseToJsonElement(line).jsonObject }.getOrNull() ?: continue

@@ -5,9 +5,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .protocol import PING_EVERY_MS, SILENCE_LIMIT_S, encode
-
-MAX_LINE = 16 << 20  # a whole-library playTracks is a few MB; anything bigger is garbage
+from .protocol import MAX_LINE, PING_EVERY_MS, SILENCE_LIMIT_S, encode
 
 
 class Link(QObject):
@@ -19,6 +17,7 @@ class Link(QObject):
         super().__init__(parent)
         self.sock = sock
         self.transport = transport  # "wifi" | "bt"
+        self.max_line = MAX_LINE  # receivers keep it small until the other end has been let in
         self._buf = bytearray()
         self._open = True
         self._heard = time.monotonic()
@@ -51,16 +50,17 @@ class Link(QObject):
         self._buf += bytes(self.sock.readAll().data())
         while self._open:
             nl = self._buf.find(b"\n")
+            if (len(self._buf) if nl < 0 else nl) > self.max_line:
+                self.close()
+                return
             if nl < 0:
-                if len(self._buf) > MAX_LINE:
-                    self.close()
                 return
             line, self._buf = bytes(self._buf[:nl]), self._buf[nl + 1:]
             if not line.strip():
                 continue
             try:
                 msg = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):
                 continue
             if not isinstance(msg, dict):
                 continue

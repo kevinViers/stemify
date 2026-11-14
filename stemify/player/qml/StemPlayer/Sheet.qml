@@ -8,6 +8,9 @@ FocusScope {
     property var win: Window.window
     readonly property real z100: win.zoom / 100
     readonly property int rowH: Math.round(20 * z100)
+    // Cell text sits on a baseline measured once from the cell font. Aligning each cell's text
+    // box to the bottom instead let a borrowed glyph (a "‐" the font lacks, say) lift the line.
+    FontMetrics { id: cellMetrics; font.family: cellFont; font.pixelSize: Math.round(X.fsCell * g.z100) }
     readonly property int headW: Math.max(30, Math.round(rowNumW.advanceWidth + 12))
     readonly property int colHeadH: 20
     readonly property var cols: library.columns
@@ -293,11 +296,12 @@ FocusScope {
                 Rectangle { visible: g.win.gridlines; anchors.right: parent.right; width: 1; height: parent.height; color: X.grid }
                 Rectangle { visible: g.win.gridlines; anchors.bottom: parent.bottom; width: parent.width; height: 1; color: X.grid }
                 Text {
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.baseline: parent.bottom
+                    anchors.baselineOffset: -(Math.round(2 * g.z100) + Math.ceil(cellMetrics.descent))
                     leftPadding: 3
                     rightPadding: 4
-                    verticalAlignment: Text.AlignBottom
-                    bottomPadding: Math.round(2 * g.z100)
                     horizontalAlignment: cell.align === "right" ? Text.AlignRight : Text.AlignLeft
                     font.family: cellFont
                     font.pixelSize: Math.round(X.fsCell * g.z100)

@@ -37,7 +37,7 @@ class FakePlex:
 class Index: by_key = {}
 class FakeStems:
     index = Index()
-    def find(self, t): return {"key": "K/" + t["key"], "stems": [{"name": "vocals", "file": "v.flac"}, {"name": "drums", "file": "d.flac"}]}
+    def find(self, t): return {"key": "K/" + t["key"], "source": "K/" + t["key"] + ".flac", "stems": [{"name": "vocals", "file": "v.flac"}, {"name": "drums", "file": "d.flac"}]}
     def peaks(self, entry, n): return {"vocals": [0.5] * n, "drums": [0.25] * n}
     def local_path(self, e, s): return silent
     def prepare(self, *a): pass
@@ -65,7 +65,7 @@ def wait(cond, secs=6.0, what=""):
     while time.monotonic() < end:
         app.processEvents(); time.sleep(0.01)
         if cond(): return True
-    print(f"FAIL waiting for {what}")
+    print(f"FAIL waiting for {what}", flush=True)
     os._exit(1)
 
 def ok(cond, what):
@@ -95,6 +95,7 @@ rp.skipBy(-10); wait(lambda: abs(engine.position() - 10) < 1.5, what="skipBy"); 
 rp.moveItem(4, 1); wait(lambda: [t["title"] for t in rx.queue][1] == "Song 4", what="move"); ok([t["title"] for t in rp.upcoming][0] == "Song 4", "drag Song 4 up to next")
 rp.removeAt(2); wait(lambda: len(rx.queue) == 4, what="remove"); ok(len(rp.upcoming) == 3, "remove from queue")
 rp.skipTo(1); wait(lambda: rx.index == 1 and rp.track["title"] == "Song 4", what="skipTo"); ok(True, "skipTo plays the tapped song")
+wait(lambda: engine.playing and rp.playing and not rp.buffering, what="the tapped song to start")
 rp.toggle(); wait(lambda: not engine.playing, what="pause"); ok(not rp.playing, "pause")
 rp.toggle(); wait(lambda: engine.playing, what="play"); ok(rp.playing, "play")
 rp.toggleShuffle(); wait(lambda: rx.shuffle, what="shuffle"); rp.cycleRepeat(); wait(lambda: rx.repeat == "all", what="repeat"); ok(True, "shuffle and repeat")
@@ -114,6 +115,36 @@ nb.transfer(); wait(lambda: rx.current()["title"] == "Song 7" and abs(engine.pos
 ok(len(rx.queue) == 2, "Move Here: local queue now plays on the receiver at 0:15")
 nb.leave(); wait(lambda: not receiver.sessions, what="leave"); ok(ctx.contextProperty("player") is local, "leaving restores the local player")
 nb.connectTo("AAA"); wait(lambda: nb.status == "connected", what="reconnect"); ok(True, "an allowed device reconnects without asking")
+
+# Ids are broadcast, so claiming an approved one must not be enough: only the key gets in.
+import json, socket
+from stemify.connect.protocol import track_from_wire
+def impostor(hello, answer=None):
+    """What the receiver says to a raw connection that sends hello (and answers a challenge with `answer`)."""
+    c = socket.create_connection(("127.0.0.1", receiver.tcp.serverPort())); c.setblocking(False)
+    c.sendall((json.dumps(hello) + "\n").encode())
+    got, buf = [], b""
+    def pump():
+        nonlocal buf
+        try:
+            buf += c.recv(65536)
+        except BlockingIOError:
+            pass
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            got.append(json.loads(line))
+            if got[-1]["t"] == "challenge" and answer is not None:
+                c.sendall((json.dumps({"t": "auth", "mac": answer}) + "\n").encode())
+        return any(g["t"] in ("pending", "welcome") for g in got)
+    wait(pump, what="an answer for the impostor")
+    c.close()
+    wait(lambda: len(receiver.sessions) == 1, what="impostor dropped")
+    return [g["t"] for g in got]
+ok(impostor({"t": "hello", "v": 1, "id": "BBB", "name": "test-controller", "app": "mobile"}) == ["pending"], "an approved id without its key is asked about again")
+ok(impostor({"t": "hello", "v": 1, "id": "BBB", "name": "x", "keyed": True}, "00" * 32) == ["challenge", "pending"], "a wrong answer to the challenge isn't let in")
+ok("key" not in json.dumps(receiver._get_allowed()) and isinstance(cfg["connectAllowed"]["BBB"], dict) and nb.cfg["connectKeys"]["AAA"] == cfg["connectAllowed"]["BBB"]["key"], "the key is stored on both sides and kept out of the settings screen")
+bad = track_from_wire({"ratingKey": 5, "title": ["x"], "partKey": "@evil.example/x", "thumb": "http://evil.example/a.jpg", "durationMs": "12", "partFile": "/m/a.flac"})
+ok(bad["partKey"] == "" and bad["thumb"] == "" and bad["title"] == "" and bad["durationMs"] == 12 and bad["key"] == "5", "tracks from another device can't point Plex requests elsewhere")
 receiver.forget("BBB"); wait(lambda: nb.status == "", what="forget"); ok(ctx.contextProperty("player") is local, "forgetting a device drops it")
 receiver.setEnabled(False)
 nb.scan(True)

@@ -13,7 +13,7 @@ the other device's EQ alone, and its spectrum chart stays local (spectra aren't 
 |---|---|---|
 | Finding devices | UDP broadcast beacon on port **47809** | The OS's paired-device list, probed for the service |
 | Talking | TCP on 47810 (or 47811, 47812, then any free port), announced in the beacon | RFCOMM, service UUID `5f3a7c2e-8d1b-4b6a-9c0e-57656d696679` |
-| Trust | Approved once on the receiver ("Allow Pixel to control this?"), then remembered | Pairing already proved it; no prompt |
+| Trust | Approved once on the receiver ("Allow Pixel to control this?"), which gives the controller a key of its own; see [Pairing](#pairing) | Pairing already proved it; no prompt |
 
 Both carry the same stream: **UTF-8 JSON, one object per line**, `"t"` naming the message.
 
@@ -31,8 +31,10 @@ last beacon. `app` is `android`, `mobile` (Stemify Mobile) or `player` (Stemify 
 
 ```
 controller                                  receiver
-  hello {v, id, name, app, probe?}    →
-                                       ←    welcome {v, id, name, app, caps}
+  hello {v, id, name, app, keyed?, probe?} →
+                                       ←    challenge {nonce}         (keyed controllers only)
+  auth {mac}                          →
+                                       ←    welcome {v, id, name, app, caps, key?}
                                             (or pending … welcome / denied)
                                        ←    state, queue, wave, eq   (full snapshot)
   cmd {seq, op, …}                    →
@@ -48,6 +50,31 @@ controller                                  receiver
 - `caps` lists optional features: `eq`, `crossfade`, `keepMix`.
 - Either side may close at any time; `bye {reason}` says why first when it can.
 - Controllers ping every 5 s; either side gives up after 20 s of silence.
+
+### Pairing
+
+Ids are broadcast in every beacon, so an id proves nothing about who is connecting. What a
+Wi-Fi controller is trusted by is a key:
+
+1. The first time, the receiver answers `pending` and asks its owner. On Allow, its `welcome`
+   carries `key`: 64 hex characters, made for this controller alone. Both sides store it (the
+   receiver beside the controller's id and name, the controller under the receiver's id).
+2. After that the controller sends `keyed: true` in its `hello`. The receiver answers
+   `challenge {nonce}`, and the controller replies `auth {mac}`, where `mac` is
+   HMAC-SHA256, keyed with the key's text, of `nonce|controller id|receiver id`, in lowercase
+   hex. A correct answer gets `welcome`; a wrong one (or none in 10 s) gets the prompt again,
+   or the door.
+
+The key crosses the network once, in that first `welcome`. A device that claims an approved id
+without holding the key is treated as new. Removing a device from the receiver's allowed list
+throws its key away.
+
+Receivers treat everyone else as a stranger until `welcome`: at most 16 unanswered
+connections at a time, 64 KB per line, and a few seconds to say hello.
+
+Devices approved before keys existed are asked about once more. An older controller (no
+`keyed`) still works with a newer receiver, but is asked about every time; a newer controller
+works with an older receiver as before.
 
 ### Acks and optimistic updates
 
@@ -151,3 +178,8 @@ Plex server, so `thumb` and the keys mean the same thing everywhere.
 
 Empty and null fields may be left out. A receiver that needs a field a sender didn't have
 (Android wants `partId` and `partSize`) looks the track up in Plex by `ratingKey`.
+
+`thumb` and `partKey` end up in requests to the receiver's Plex server, with its token, so a
+receiver only accepts paths on that server (`/library/...`): anything that could name another
+host is dropped. The desktop apps also take a `file:///` thumb (a cover file two apps on one
+computer can both see).

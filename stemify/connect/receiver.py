@@ -1,7 +1,8 @@
 """The receiving end of Stemify Connect: lets nearby controllers drive this app's player.
 
-Wi-Fi controllers are approved once on this device (and remembered); Bluetooth ones are already
-paired, so they're trusted. Works with Stemify Player's Player and Stemify Mobile's MobilePlayer."""
+Wi-Fi controllers are approved once on this device and given a key; after that they prove they
+hold it each time they connect (docs/CONNECT.md, Pairing). Bluetooth ones are already paired, so
+they're trusted. Works with Stemify Player's Player and Stemify Mobile's MobilePlayer."""
 
 import math
 import random
@@ -13,7 +14,8 @@ from ..player.player import UNITY
 from .bt import BtServer
 from .discovery import Beacon
 from .link import Link
-from .protocol import QUEUE_AHEAD, QUEUE_BEHIND, TCP_PORTS, VERSION, track_from_wire, track_to_wire
+from .protocol import (HELLO_LINE, MAX_LINE, MAX_STRANGERS, QUEUE_AHEAD, QUEUE_BEHIND, TCP_PORTS, VERSION, auth_mac,
+                       mac_matches, new_key, new_nonce, track_from_wire, track_to_wire)
 
 HELLO_TIMEOUT_MS = 10_000
 FLUSH_MS = 60
@@ -27,6 +29,8 @@ class Session:
         self.link = link
         self.peer = {}
         self.approved = False
+        self.asking = False  # waiting for this device's owner to answer the prompt
+        self.nonce = None  # the challenge sent, until it's answered
         self.meters = False
         self.ack = 0
 
@@ -129,7 +133,13 @@ class Receiver(QObject):
         self.apply_settings()
 
     def _allowed(self):
+        """id -> {"name", "key"}. Entries from before pairing keys are just a name: those devices
+        are asked about once more, and get a key then."""
         return self.cfg.setdefault("connectAllowed", {})
+
+    def _key(self, peer_id):
+        e = self._allowed().get(peer_id)
+        return e.get("key") if isinstance(e, dict) else None
 
     @Slot(str)
     def forget(self, peer_id):
@@ -141,13 +151,14 @@ class Receiver(QObject):
         self.settingsChanged.emit()
 
     def _get_allowed(self):
-        return [{"id": k, "name": v} for k, v in sorted(self._allowed().items(), key=lambda kv: kv[1].lower())]
+        rows = [{"id": k, "name": str(v.get("name", "") if isinstance(v, dict) else v)} for k, v in self._allowed().items()]
+        return sorted(rows, key=lambda r: r["name"].lower())
 
     def _get_pending(self):
         seen, out = set(), []
         for s in self.sessions:
             pid = s.peer.get("id")
-            if s.peer and not s.approved and pid not in seen:
+            if s.asking and not s.approved and pid not in seen:
                 seen.add(pid)
                 out.append({"id": pid, "name": s.peer.get("name", "A device"), "app": s.peer.get("app", "")})
         return out
@@ -165,20 +176,20 @@ class Receiver(QObject):
 
     @Slot(str, bool)
     def approve(self, peer_id, remember):
-        name = None
-        for s in self.sessions:
-            if s.peer.get("id") == peer_id and not s.approved:
-                name = s.peer.get("name", "")
-                self._welcome(s)
-        if remember and name is not None:
-            self._allowed()[peer_id] = name
+        asking = [s for s in self.sessions if s.asking and not s.approved and s.peer.get("id") == peer_id]
+        if asking and remember:
+            # Its own key, handed over in this welcome and never sent again.
+            key = new_key()
+            self._allowed()[peer_id] = {"name": asking[-1].peer.get("name", ""), "key": key}
             self._save_cfg()
             self.settingsChanged.emit()
+        for s in asking:
+            self._welcome(s, key if remember else None)
         self.approvalsChanged.emit()
 
     @Slot(str)
     def deny(self, peer_id):
-        for s in [s for s in self.sessions if s.peer.get("id") == peer_id and not s.approved]:
+        for s in [s for s in self.sessions if s.asking and s.peer.get("id") == peer_id and not s.approved]:
             s.link.send({"t": "denied"})
             s.link.close()
         self.approvalsChanged.emit()
@@ -191,6 +202,11 @@ class Receiver(QObject):
                 self._add(Link(sock, "wifi"))
 
     def _add(self, link):
+        # Anything on the network can connect: strangers get a short line and a few seats.
+        if sum(not x.approved for x in self.sessions) >= MAX_STRANGERS:
+            link.close()
+            return
+        link.max_line = HELLO_LINE
         s = Session(link)
         self.sessions.append(s)
         link.message.connect(lambda m, s=s: self._on_message(s, m))
@@ -200,7 +216,7 @@ class Receiver(QObject):
     def _drop(self, s):
         if s in self.sessions:
             self.sessions.remove(s)
-            if not s.approved and s.peer:
+            if s.asking and not s.approved:
                 self.approvalsChanged.emit()
             if s.approved:
                 self.controllersChanged.emit()
@@ -216,18 +232,29 @@ class Receiver(QObject):
             if t != "hello" or not m.get("id"):
                 s.link.close()
                 return
-            s.peer = {"id": str(m["id"]), "name": str(m.get("name") or "A device")[:80], "app": str(m.get("app") or "")}
-            trusted = s.link.transport == "bt" or s.peer["id"] in self._allowed()
+            s.peer = {"id": str(m["id"])[:128], "name": str(m.get("name") or "A device")[:80], "app": str(m.get("app") or "")[:32]}
+            bt = s.link.transport == "bt"
+            keyed = bool(m.get("keyed")) and self._key(s.peer["id"]) is not None
             if m.get("probe"):
-                s.link.send(dict(self._identity(), t="welcome" if trusted else "pending"))
+                s.link.send(dict(self._identity(), t="welcome" if bt or keyed else "pending"))
                 s.link.close()
-            elif trusted:
+            elif bt:
                 self._welcome(s)
+            elif keyed:
+                s.nonce = new_nonce()
+                s.link.send({"t": "challenge", "nonce": s.nonce})
+                QTimer.singleShot(HELLO_TIMEOUT_MS, s.link, lambda: s.nonce is not None and s.link.close())
             else:
-                s.link.send(dict(self._identity(), t="pending"))
-                self.approvalsChanged.emit()
+                self._ask(s)
             return
         if not s.approved:
+            if t == "auth" and s.nonce is not None:
+                nonce, s.nonce = s.nonce, None
+                key = self._key(s.peer["id"])
+                if key and mac_matches(m.get("mac"), auth_mac(key, nonce, s.peer["id"], self.identity["id"])):
+                    self._welcome(s)
+                else:
+                    self._ask(s)  # not the device that was approved, whatever it calls itself
             return
         if t == "cmd":
             seq = m.get("seq")
@@ -244,9 +271,15 @@ class Receiver(QObject):
             s.meters = bool(m.get("on"))
             self._update_meters()
 
-    def _welcome(self, s):
+    def _ask(self, s):
+        s.asking = True
+        s.link.send(dict(self._identity(), t="pending"))
+        self.approvalsChanged.emit()
+
+    def _welcome(self, s, key=None):
         s.approved = True
-        s.link.send(dict(self._identity(), t="welcome"))
+        s.link.max_line = MAX_LINE
+        s.link.send(dict(self._identity(), t="welcome", **({"key": key} if key else {})))
         s.link.send(self._state(s.ack))
         s.link.send(self._queue(s.ack))
         s.link.send(self._wave())

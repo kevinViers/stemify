@@ -500,6 +500,9 @@ chart, which shows `#N/A` until you're playing locally again. While you're contr
 **The first time a device on your Wi-Fi tries**, the one being controlled asks: "Allow Pixel 10 to
 control Stemify?" (Stemify Player, being Excel, shows a yellow SECURITY WARNING bar with **Enable
 Content**.) Say yes once and it's remembered. Bluetooth devices don't ask, since pairing already did.
+Saying yes gives that device a key of its own, and it has to prove it holds it every time it
+connects, so another device on the Wi-Fi can't get in by claiming to be one you've allowed. (After
+updating, devices you'd already allowed are asked about once more, to get their key.)
 
 **Settings → Nearby Devices** turns being controlled on or off, separately for Bluetooth, and lists
 who's allowed and who's connected right now. On the phone, Bluetooth needs the Nearby devices

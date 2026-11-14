@@ -107,8 +107,10 @@ class Settings(context: Context) {
     /** Stemify Connect: nearby devices may control this phone (Wi-Fi ones once approved here). */
     val connectEnabled = bool("connectEnabled", true)
     val connectBluetooth = bool("connectBluetooth", true)
-    /** Wi-Fi controllers approved here, as a JSON object of id to name. */
+    /** Wi-Fi controllers approved here, as a JSON object of id to {name, key} (just a name, before pairing keys). */
     val connectAllowed = string("connectAllowed", "{}")
+    /** The keys receivers gave this phone when they approved it, as a JSON object of receiver id to key. */
+    val connectKeys = string("connectKeys", "{}")
 
     val clientId: String = prefs.getString("clientId", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("clientId", it).apply()

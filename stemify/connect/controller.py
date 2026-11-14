@@ -6,7 +6,7 @@ from PySide6.QtNetwork import QTcpSocket
 
 from . import bt
 from .link import Link
-from .protocol import QUEUE_BEHIND, VERSION, track_to_wire
+from .protocol import QUEUE_BEHIND, VERSION, auth_mac, track_to_wire
 from .receiver import clean_mix
 from .remote import RemoteEngine, RemoteEq, RemotePlayer, RemoteSession
 
@@ -21,8 +21,9 @@ class Nearby(QObject):
     localChanged = Signal()
     hud = Signal(str, str)
 
-    def __init__(self, cfg, identity, beacon, ctx, local, make_remote=None, on_swap=None, parent=None):
+    def __init__(self, cfg, identity, beacon, ctx, local, make_remote=None, on_swap=None, save=None, parent=None):
         """local: {"player", "engine", "eq"?}, the objects the screens normally see.
+        save() stores cfg, which holds the keys receivers have given this device.
         make_remote(session, caps) -> (player, engine, eq or None): the stand-ins while connected
         (Stemify Mobile's by default). on_swap(player, engine) runs whenever the screens switch
         between the local objects and the stand-ins, for whatever else holds the player."""
@@ -30,6 +31,7 @@ class Nearby(QObject):
         self.cfg, self.identity, self.beacon, self.ctx, self.local = cfg, identity, beacon, ctx, local
         self._make_remote = make_remote or _mobile_remote
         self._on_swap = on_swap
+        self._save_cfg = save or (lambda: None)
         self.scanner = bt.BtScanner(identity, self)
         self.scanner.found.connect(self._bt_found)
         self.scanner.finished.connect(self._bt_done)
@@ -124,12 +126,25 @@ class Nearby(QObject):
         self.link = Link(sock, transport, ping=True, parent=self)
         self.link.message.connect(self._on_message)
         self.link.closed.connect(self._on_closed)
-        self.link.send(dict(self.identity, t="hello", v=VERSION))
+        keyed = transport == "wifi" and bool(self._keys().get(self.target["id"]))
+        self.link.send(dict(self.identity, t="hello", v=VERSION, **({"keyed": True} if keyed else {})))
+
+    def _keys(self):
+        """Receiver id -> the key it gave this device when it approved it."""
+        return self.cfg.setdefault("connectKeys", {})
 
     def _on_message(self, m):
         t = m.get("t")
-        if t == "welcome" and self.status != "connected":
+        if t == "challenge" and self.status != "connected" and self.target:
+            # Proves this is the device the receiver approved, without sending the key.
+            key = self._keys().get(self.target["id"])
+            if key and isinstance(m.get("nonce"), str):
+                self.link.send({"t": "auth", "mac": auth_mac(key, m["nonce"], self.identity["id"], self.target["id"])})
+        elif t == "welcome" and self.status != "connected":
             self._timeout.stop()
+            if isinstance(m.get("key"), str) and m["key"] and self.link.transport == "wifi":
+                self._keys()[self.target["id"]] = m["key"][:256]
+                self._save_cfg()
             self.caps = list(m.get("caps") or [])
             self.target = dict(self.target, name=str(m.get("name") or self._target_name()), app=str(m.get("app") or ""))
             self._go_remote()

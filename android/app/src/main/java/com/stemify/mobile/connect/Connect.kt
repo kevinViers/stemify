@@ -30,7 +30,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import com.stemify.mobile.core.AppJson
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.math.max
@@ -156,6 +158,7 @@ class Connect(
             l.start()
             l.send(buildJsonObject {
                 put("t", "hello"); put("v", Wire.VERSION); put("id", identity.id); put("name", identity.name); put("app", identity.app)
+                if (d.transport == Transport.Wifi && keys()[d.id] != null) put("keyed", true)
             })
             delay(CONNECT_TIMEOUT_MS)
             if (link === l && _state.value == State.Connecting) fail("${d.name} didn't answer")
@@ -196,7 +199,14 @@ class Connect(
         if (link !== l) return
         val d = _target.value ?: return
         when (m.str("t")) {
+            // Proves this is the phone the receiver approved, without sending the key.
+            "challenge" -> if (_state.value != State.Connected) {
+                val key = keys()[d.id]
+                val nonce = m.str("nonce")
+                if (key != null && nonce != null) l.send(buildJsonObject { put("t", "auth"); put("mac", Pairing.mac(key, nonce, identity.id, d.id)) })
+            }
             "welcome" -> if (_state.value != State.Connected) {
+                m.str("key")?.takeIf { it.isNotEmpty() && d.transport == Transport.Wifi }?.let { saveKey(d.id, it.take(256)) }
                 val caps = (m["caps"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
                 val named = d.copy(name = m.str("name") ?: d.name, app = m.str("app") ?: d.app)
                 _target.value = named
@@ -211,6 +221,16 @@ class Connect(
             "toast" -> m.str("text")?.let { _messages.tryEmit(it) }
             else -> _remote.value?.handle(m)
         }
+    }
+
+    /** Receiver id to the key it gave this phone when it approved it. */
+    private fun keys(): Map<String, String> = runCatching {
+        AppJson.parseToJsonElement(settings.connectKeys.value).jsonObject.mapValues { (it.value as? JsonPrimitive)?.contentOrNull ?: "" }
+            .filterValues { it.isNotEmpty() }
+    }.getOrDefault(emptyMap())
+
+    private fun saveKey(receiverId: String, key: String) {
+        settings.connectKeys.value = buildJsonObject { (keys() + (receiverId to key)).forEach { (k, v) -> put(k, v) } }.toString()
     }
 
     private fun onClosed(l: Link) {

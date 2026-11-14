@@ -96,7 +96,8 @@ def main():
         library.update_queue()
         if mpris is not None:
             mpris.attach(p, e)
-    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine}, make_remote, on_swap)
+    nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine}, make_remote, on_swap,
+                    save=lambda: config.save(cfg))
     ctx.setContextProperty("nearby", nearby)
     settings = _Settings(cfg)
     ctx.setContextProperty("settings", settings)

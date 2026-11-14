@@ -1,5 +1,6 @@
 package com.stemify.mobile
 
+import com.stemify.mobile.connect.Pairing
 import com.stemify.mobile.connect.WireEq
 import com.stemify.mobile.connect.WireMix
 import com.stemify.mobile.connect.WireTrack
@@ -35,6 +36,34 @@ class ConnectWireTest {
         assertEquals("12345678", "12345678\n".reader().buffered().readLineUpTo(8))
         val endless = "x".repeat(100).reader().buffered()
         assertTrue(runCatching { endless.readLineUpTo(8) }.exceptionOrNull() is java.io.IOException)
+    }
+
+    @Test fun linesGrowOnceLetIn() {
+        var max = 4
+        val r = "hello\n".reader().buffered()
+        assertTrue(runCatching { r.readLineUpTo { max } }.exceptionOrNull() is java.io.IOException)
+        max = 64
+        assertEquals("a longer line", "a longer line\n".reader().buffered().readLineUpTo { max })
+    }
+
+    @Test fun pairingAnswersMatchTheDesktops() {
+        // stemify.connect.protocol.auth_mac("k" * 64, "abc123", "phone-id", "desk-id")
+        val mac = Pairing.mac("k".repeat(64), "abc123", "phone-id", "desk-id")
+        assertEquals("45e01eab9c79e0f59b1ba6f0c1a1e3fa790df7c2f05d30854a5e8d4b6ed05506", mac)
+        assertTrue(Pairing.matches(mac, mac))
+        assertTrue(!Pairing.matches(null, mac) && !Pairing.matches(mac.dropLast(1), mac))
+        assertEquals(64, Pairing.newKey().length)
+        assertTrue(Pairing.newKey() != Pairing.newKey())
+    }
+
+    @Test fun tracksFromOtherDevicesStayOnPlex() {
+        val t = WireTrack.decode(json("""{"ratingKey":"1","title":"T","artist":"A","album":"B","partKey":"@evil.example/x","thumb":"http://evil.example/a.jpg"}"""))!!
+        assertEquals(null, t.partKey)
+        assertEquals(null, t.thumb)
+        val ok = WireTrack.decode(json("""{"ratingKey":"1","title":"T","artist":"A","album":"B","partKey":"/library/parts/1/2/file.flac","thumb":"/library/metadata/1/thumb/2"}"""))!!
+        assertEquals("/library/parts/1/2/file.flac", ok.partKey)
+        assertEquals("/library/metadata/1/thumb/2", ok.thumb)
+        assertTrue(!WireTrack.plexPath("//evil.example/x") && !WireTrack.plexPath("/a?url=http://x"))
     }
 
     @Test fun desktopTrackDecodes() {

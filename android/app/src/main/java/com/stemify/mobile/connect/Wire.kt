@@ -41,6 +41,36 @@ object Wire {
     const val QUEUE_AHEAD = 1000
     /** A whole-library playTracks is a few MB; anything longer is garbage (the desktop's limit too). */
     const val MAX_LINE = 16 shl 20
+    /** All a device gets to send before it has been let in. */
+    const val HELLO_LINE = 64 shl 10
+    /** Connections that haven't been let in yet, at once. */
+    const val MAX_STRANGERS = 16
+}
+
+/**
+ * Pairing (docs/CONNECT.md): a receiver gives each Wi-Fi controller it approves a key of its
+ * own, in that first welcome. From then on the controller proves it holds the key by answering
+ * a challenge; the key itself is never sent again. Ids alone prove nothing: every device
+ * broadcasts its own.
+ */
+object Pairing {
+    private val random = java.security.SecureRandom()
+
+    private fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it) }
+
+    fun newKey(): String = hex(ByteArray(32).also { random.nextBytes(it) })
+
+    fun newNonce(): String = hex(ByteArray(16).also { random.nextBytes(it) })
+
+    /** The answer to a challenge: HMAC-SHA256 of "nonce|controller id|receiver id", in hex. */
+    fun mac(key: String, nonce: String, controllerId: String, receiverId: String): String {
+        val h = javax.crypto.Mac.getInstance("HmacSHA256")
+        h.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return hex(h.doFinal("$nonce|$controllerId|$receiverId".toByteArray(Charsets.UTF_8)))
+    }
+
+    fun matches(given: String?, expected: String): Boolean =
+        given != null && java.security.MessageDigest.isEqual(given.toByteArray(Charsets.UTF_8), expected.toByteArray(Charsets.UTF_8))
 }
 
 /**
@@ -48,13 +78,16 @@ object Wire {
  * gives up on a line longer than [max] characters, so a device that hasn't been approved yet
  * can't fill the phone's memory by never sending a line break.
  */
-fun java.io.BufferedReader.readLineUpTo(max: Int): String? {
+fun java.io.BufferedReader.readLineUpTo(max: Int): String? = readLineUpTo { max }
+
+/** [max] is asked as the line grows: a receiver raises it once the other end has been let in. */
+fun java.io.BufferedReader.readLineUpTo(max: () -> Int): String? {
     val sb = StringBuilder()
     while (true) {
         val c = read()
         if (c < 0) return if (sb.isEmpty()) null else sb.toString()
         if (c == '\n'.code) return sb.toString()
-        if (sb.length >= max) throw java.io.IOException("line too long")
+        if (sb.length >= max()) throw java.io.IOException("line too long")
         sb.append(c.toChar())
     }
 }
@@ -92,9 +125,17 @@ fun JsonObject.arr(k: String): JsonArray? = this[k] as? JsonArray
 object WireTrack {
     fun encode(t: Track): JsonElement = AppJson.encodeToJsonElement(Track.serializer(), t)
 
+    /**
+     * A track from another device. The two fields that end up in requests to Plex (the art and
+     * the file) must be paths on the Plex server: anything else could point this phone, and its
+     * Plex token, at a server of the sender's choosing.
+     */
     fun decode(e: JsonElement?): Track? = (e as? JsonObject)?.let { o ->
         runCatching { AppJson.decodeFromJsonElement(Track.serializer(), o) }.getOrNull()
-    }
+    }?.let { t -> t.copy(thumb = t.thumb?.takeIf(::plexPath), partKey = t.partKey?.takeIf(::plexPath)) }
+
+    /** Whether [p] is a path on the Plex server ("/library/..."), not a URL or a way off it. */
+    fun plexPath(p: String): Boolean = p.startsWith("/") && !p.startsWith("//") && '\\' !in p && "://" !in p
 
     fun list(tracks: List<Track>) = buildJsonArray { tracks.forEach { add(encode(it)) } }
 }

@@ -243,7 +243,9 @@ class PlexClient(private val http: OkHttpClient, private val settings: Settings)
             .build().toString()
     }
 
-    fun partUrl(partKey: String): String = "$base$partKey?X-Plex-Token=${Uri.encode(token)}"
+    // Always a path on this server: a key like "@elsewhere/x" glued straight onto the address
+    // would send the request, and the token, to elsewhere.
+    fun partUrl(partKey: String): String = "$base/${partKey.trimStart('/')}?X-Plex-Token=${Uri.encode(token)}"
 
     // ---- plex.tv sign-in ------------------------------------------------------------
 

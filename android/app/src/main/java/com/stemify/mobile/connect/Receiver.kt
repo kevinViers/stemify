@@ -43,8 +43,9 @@ import kotlin.math.roundToInt
 
 /**
  * The receiving end of Stemify Connect: lets nearby controllers drive this phone's player, EQ and
- * crossfade. Wi-Fi controllers are approved once here (and remembered); Bluetooth ones are
- * already paired, so they're trusted. Main thread only, but for the sockets' own threads.
+ * crossfade. Wi-Fi controllers are approved once here and given a key; after that they prove
+ * they hold it each time they connect ([Pairing]). Bluetooth ones are already paired, so
+ * they're trusted. Main thread only, but for the sockets' own threads.
  */
 class Receiver(
     private val settings: Settings,
@@ -63,6 +64,10 @@ class Receiver(
     private class Session(val link: Link) {
         var peer: Peer? = null
         var approved = false
+        /** Waiting for this phone's owner to answer the prompt. */
+        var asking = false
+        /** The challenge sent, until it's answered. */
+        var nonce: String? = null
         var meters = false
         var ack = 0L
     }
@@ -73,7 +78,9 @@ class Receiver(
     val pending: StateFlow<List<Peer>> = _pending.asStateFlow()
     private val _controllers = MutableStateFlow<List<Controller>>(emptyList())
     val controllers: StateFlow<List<Controller>> = _controllers.asStateFlow()
-    private val _allowed = MutableStateFlow(readAllowed())
+    /** Approved Wi-Fi controllers: id to name and key (null from before pairing keys: asked about once more). */
+    private var trusted: Map<String, Pair<String, String?>> = readAllowed()
+    private val _allowed = MutableStateFlow(trusted.mapValues { it.value.first })
     /** Approved Wi-Fi controllers: id to name. */
     val allowed: StateFlow<Map<String, String>> = _allowed.asStateFlow()
 
@@ -194,17 +201,17 @@ class Receiver(
     // ---- approvals ---------------------------------------------------------------------------
 
     fun approve(id: String) {
-        var name: String? = null
-        sessions.filter { it.peer?.id == id && !it.approved }.forEach {
-            name = it.peer?.name
-            welcome(it)
-        }
-        name?.let { saveAllowed(_allowed.value + (id to it)) }
+        val asking = sessions.filter { it.asking && it.peer?.id == id && !it.approved }
+        if (asking.isEmpty()) return refresh()
+        // Its own key, handed over in this welcome and never sent again.
+        val key = Pairing.newKey()
+        saveAllowed(trusted + (id to ((asking.last().peer?.name ?: "") to key)))
+        asking.forEach { welcome(it, key) }
         refresh()
     }
 
     fun deny(id: String) {
-        sessions.filter { it.peer?.id == id && !it.approved }.forEach {
+        sessions.filter { it.asking && it.peer?.id == id && !it.approved }.forEach {
             it.link.send(buildJsonObject { put("t", "denied") })
             it.link.close()
         }
@@ -213,27 +220,38 @@ class Receiver(
 
     /** Takes back a Wi-Fi device's permission, dropping it if it's connected. */
     fun forget(id: String) {
-        saveAllowed(_allowed.value - id)
+        saveAllowed(trusted - id)
         sessions.filter { it.peer?.id == id && it.link.transport == Transport.Wifi }.forEach { it.link.close("Permission withdrawn") }
     }
 
-    private fun readAllowed(): Map<String, String> = runCatching {
-        AppJson.parseToJsonElement(settings.connectAllowed.value).jsonObject.mapValues { (it.value as? JsonPrimitive)?.contentOrNull ?: "" }
+    private fun readAllowed(): Map<String, Pair<String, String?>> = runCatching {
+        AppJson.parseToJsonElement(settings.connectAllowed.value).jsonObject.mapValues { (_, v) ->
+            if (v is JsonObject) (v.str("name") ?: "") to v.str("key") else ((v as? JsonPrimitive)?.contentOrNull ?: "") to null
+        }
     }.getOrDefault(emptyMap())
 
-    private fun saveAllowed(m: Map<String, String>) {
-        _allowed.value = m
-        settings.connectAllowed.value = buildJsonObject { m.forEach { (k, v) -> put(k, v) } }.toString()
+    private fun saveAllowed(m: Map<String, Pair<String, String?>>) {
+        trusted = m
+        _allowed.value = m.mapValues { it.value.first }
+        settings.connectAllowed.value = buildJsonObject {
+            m.forEach { (id, v) -> put(id, buildJsonObject { put("name", v.first); v.second?.let { put("key", it) } }) }
+        }.toString()
     }
 
     private fun refresh() {
-        _pending.value = sessions.filter { !it.approved }.mapNotNull { it.peer }.distinctBy { it.id }
+        _pending.value = sessions.filter { it.asking && !it.approved }.mapNotNull { it.peer }.distinctBy { it.id }
         _controllers.value = sessions.filter { it.approved }.mapNotNull { s -> s.peer?.let { Controller(it, s.link.transport) } }
     }
 
     // ---- sessions ----------------------------------------------------------------------------
 
     private fun add(link: Link) {
+        // Anything on the network can connect: strangers get a short line and a few seats.
+        link.maxLine = Wire.HELLO_LINE
+        if (sessions.count { !it.approved } >= Wire.MAX_STRANGERS) {
+            link.start()
+            return link.close()
+        }
         val s = Session(link)
         sessions += s
         link.onMessage = { m -> onMessage(s, m) }
@@ -252,8 +270,9 @@ class Receiver(
         }
     }
 
-    private fun hello(t: String) = buildJsonObject {
+    private fun hello(t: String, key: String? = null) = buildJsonObject {
         put("t", t)
+        key?.let { put("key", it) }
         put("v", Wire.VERSION)
         put("id", identity.id)
         put("name", identity.name)
@@ -266,22 +285,40 @@ class Receiver(
         if (s.peer == null) {
             val id = m.str("id")
             if (t != "hello" || id == null) return s.link.close()
-            s.peer = Peer(id, (m.str("name") ?: "A device").take(80), m.str("app") ?: "")
-            val trusted = s.link.transport == Transport.Bt || id in _allowed.value
+            val peer = Peer(id.take(128), (m.str("name") ?: "A device").take(80), (m.str("app") ?: "").take(32))
+            s.peer = peer
+            val bt = s.link.transport == Transport.Bt
+            val keyed = m.bool("keyed") == true && trusted[peer.id]?.second != null
             when {
                 m.bool("probe") == true -> {
-                    s.link.send(hello(if (trusted) "welcome" else "pending"))
+                    s.link.send(hello(if (bt || keyed) "welcome" else "pending"))
                     s.link.close()
                 }
-                trusted -> welcome(s)
-                else -> {
-                    s.link.send(hello("pending"))
-                    refresh()
+                bt -> welcome(s)
+                keyed -> {
+                    val nonce = Pairing.newNonce()
+                    s.nonce = nonce
+                    s.link.send(buildJsonObject { put("t", "challenge"); put("nonce", nonce) })
+                    scope.launch {
+                        delay(10_000)
+                        if (s.nonce != null) s.link.close()
+                    }
                 }
+                else -> ask(s)
             }
             return
         }
-        if (!s.approved) return
+        if (!s.approved) {
+            val nonce = s.nonce
+            if (t == "auth" && nonce != null) {
+                s.nonce = null
+                val peer = s.peer ?: return
+                val key = trusted[peer.id]?.second
+                if (key != null && Pairing.matches(m.str("mac"), Pairing.mac(key, nonce, peer.id, identity.id))) welcome(s)
+                else ask(s)  // not the device that was approved, whatever it calls itself
+            }
+            return
+        }
         when (t) {
             "cmd" -> {
                 val op = m.str("op") ?: return
@@ -305,9 +342,16 @@ class Receiver(
         }
     }
 
-    private fun welcome(s: Session) {
+    private fun ask(s: Session) {
+        s.asking = true
+        s.link.send(hello("pending"))
+        refresh()
+    }
+
+    private fun welcome(s: Session, key: String? = null) {
         s.approved = true
-        s.link.send(hello("welcome"))
+        s.link.maxLine = Wire.MAX_LINE
+        s.link.send(hello("welcome", key))
         s.link.send(stateMsg(s.ack))
         s.link.send(queueMsg(s.ack))
         s.link.send(waveMsg())

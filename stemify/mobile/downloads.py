@@ -216,7 +216,9 @@ class Downloads(QObject):
             paths = []
             for i, n in enumerate(names):
                 ext = ".opus" if kbps else os.path.splitext(stems[n]["file"])[1]
-                dest = os.path.join(folder, n + ext)
+                # The name comes from the server's index; it must stay a file name in this folder.
+                safe = os.path.basename(n.replace("\\", "/")).lstrip(".") or f"stem{i}"
+                dest = os.path.join(folder, safe + ext)
                 local = None if kbps else self.server.local_path(entry, stems[n])
                 self._get(local, self.server.file_url(entry, stems[n], kbps), dest,
                           lambda f, i=i: self._step.emit("progress", (key, (i + f) / len(names))))
@@ -238,7 +240,7 @@ class Downloads(QObject):
         root = self.cfg.get("musicDir", "")
         if not pf or not root or not os.path.isdir(root):
             return None
-        parts = pf.replace("\\", "/").split("/")
+        parts = [x for x in pf.replace("\\", "/").split("/") if x not in ("", ".", "..")]
         for i in range(1, len(parts)):
             p = os.path.join(root, *parts[i:])
             if os.path.exists(p):

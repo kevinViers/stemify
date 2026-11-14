@@ -211,7 +211,8 @@ fun PlexItem.toTrack(): Track {
     val part = media?.parts?.firstOrNull()
     return Track(
         ratingKey = ratingKey,
-        title = title,
+        // Plex leaves untagged files (old WAV rips) without a title; their file name beats a blank row.
+        title = title.ifBlank { part?.file?.replace('\\', '/')?.substringAfterLast('/')?.substringBeforeLast('.') ?: "" },
         artist = originalTitle?.takeIf { it.isNotBlank() } ?: grandparentTitle ?: "Unknown Artist",
         album = parentTitle ?: "",
         albumKey = parentRatingKey,

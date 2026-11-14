@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import coil3.SingletonImageLoader
 import com.stemify.mobile.App
+import com.stemify.mobile.connect.WireTrack
 import okhttp3.Request
 import java.io.File
 import java.io.FileNotFoundException
@@ -33,6 +34,9 @@ class CarArtProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (uri.path == "/$LETTER") return letterTile(uri.getQueryParameter(LETTER) ?: "#")
         val thumb = uri.getQueryParameter(THUMB) ?: throw FileNotFoundException(uri.toString())
+        // Any app on the phone can ask this provider for art, so it only fetches Plex's own
+        // paths: Plex's transcoder would otherwise fetch whatever address it was handed.
+        if (!WireTrack.plexPath(thumb)) throw FileNotFoundException(thumb)
         val file = File(dir, sha1(thumb) + ".jpg")
         if (!file.exists() || file.length() == 0L) fill(thumb, file)
         if (!file.exists()) throw FileNotFoundException(thumb)
