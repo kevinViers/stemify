@@ -107,6 +107,16 @@ class Downloads(
         _records.value.values.filter { !it.done && it.error == null }.forEach { enqueue(it.track.ratingKey) }
     }
 
+    /**
+     * Puts the progress notification (and the service that keeps downloads going in the
+     * background) back after a restart left downloads queued. Call with the app in front:
+     * Android only lets a foreground service start from there.
+     */
+    fun showProgress() {
+        if (_progress.value.isEmpty()) return
+        runCatching { context.startForegroundService(Intent(context, DownloadService::class.java)) }
+    }
+
     fun isDownloaded(ratingKey: String) = _records.value[ratingKey]?.done == true
 
     /**

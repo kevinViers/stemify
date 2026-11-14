@@ -93,6 +93,7 @@ import com.stemify.mobile.ui.screens.SettingsScreen
 import com.stemify.mobile.ui.screens.SongsScreen
 import com.stemify.mobile.ui.screens.StemServerScreen
 import com.stemify.mobile.ui.screens.StorageScreen
+import com.stemify.mobile.ui.screens.TransferScreen
 import com.stemify.mobile.ui.screens.Tab
 import com.stemify.mobile.ui.theme.Icon
 import com.stemify.mobile.ui.theme.IosTheme
@@ -126,6 +127,7 @@ private fun Screen(route: Route) = when (route) {
     Route.Crossfade -> CrossfadeScreen()
     Route.Nearby -> NearbyScreen()
     Route.Storage -> StorageScreen()
+    Route.Transfer -> TransferScreen()
     Route.Appearance -> AppearanceScreen()
     is Route.ArtistPage -> ArtistScreen(route.artist)
     is Route.AlbumPage -> AlbumScreen(route.album)
@@ -205,6 +207,9 @@ private fun Shell(openNowPlaying: Int) {
     }
     LaunchedEffect(openNowPlaying) { if (openNowPlaying > 0 && g.controls.current.value != null) sheet.animateTo(1f) }
     LaunchedEffect(Unit) { merge(g.playback.messages, g.connect.messages).collect { overlays.hud(it, Sym.warning) } }
+    // A backup file opened from Files or Quick Share: the Transfer page offers to restore it.
+    val incoming by g.incomingBackup.collectAsState()
+    LaunchedEffect(incoming) { if (incoming != null) actions.showInSettings(Route.Transfer) }
 
     val fold = rememberFold()
     val swapped by g.settings.wideSwapped.flow.collectAsState()

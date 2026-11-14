@@ -94,6 +94,41 @@ class MobilePlayer(Player):
         super()._on_advanced()
         self.queueChanged.emit()
 
+    # ---- backup (Transfer to a New Computer) -----------------------------------------------------
+    def export_queue(self):
+        """The queue as the player saves it, with its place, repeat and stem mix; None when empty."""
+        if not self.queue:
+            return None
+        slim = lambda ts: [{k: t[k] for k in self.QUEUE_KEYS if k in t} for t in ts] if ts is not None else None
+        return {"queue": slim(self.queue), "unshuffled": slim(self._unshuffled), "index": self.index,
+                "shuffle": self.shuffle, "repeat": self.repeat, "mix": self.mix,
+                "position": round(self.engine.position() if self.engine.duration else self._pending_seek, 2)}
+
+    def adopt_queue(self, q):
+        """A backup's queue and mix. While something plays, only the mix is taken."""
+        mix = q.get("mix")
+        mix = {str(k): dict(v) for k, v in mix.items() if isinstance(v, dict)} if isinstance(mix, dict) else {}
+        if self.engine.playing:
+            self.mix = mix
+            self._push_mix()
+            self._save_soon()
+            return
+        clean = lambda ts: [{k: t[k] for k in self.QUEUE_KEYS if k in t} for t in ts if isinstance(t, dict) and t.get("key")]
+        items = clean(q.get("queue") or [])
+        if not items:
+            return
+        self.queue = items
+        self._unshuffled = clean(q["unshuffled"]) if q.get("unshuffled") else None
+        self.shuffle = bool(q.get("shuffle"))
+        self.repeat = q.get("repeat") if q.get("repeat") in ("off", "all", "one") else "off"
+        self.mix = mix
+        self.index = max(0, min(int(q.get("index") or 0), len(items) - 1))
+        start = float(q.get("position") or 0)
+        self._load(self.index, play=False, start=start)
+        self._push_mix()
+        self._queue_changed()
+        self._save_soon()
+
     @Slot("QVariantList", int, bool)
     def playTracks(self, tracks, start=0, shuffle=False):
         if shuffle and start <= 0 and tracks:

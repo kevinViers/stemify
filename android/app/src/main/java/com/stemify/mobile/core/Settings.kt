@@ -32,8 +32,8 @@ enum class StemQuality(val label: String, val detail: String, val fmt: String, v
 
 class Pref<T>(
     private val prefs: SharedPreferences,
-    private val key: String,
-    initial: T,
+    val key: String,
+    private val initial: T,
     private val read: SharedPreferences.(String, T) -> T,
     private val write: SharedPreferences.Editor.(String, T) -> Unit,
 ) {
@@ -46,31 +46,68 @@ class Pref<T>(
             state.value = v
             prefs.edit().apply { write(key, v) }.apply()
         }
+
+    /** Picks up a value written straight to the preferences (a restored backup). */
+    internal fun reload() {
+        state.value = prefs.read(key, initial)
+    }
 }
 
 class Settings(private val prefs: SharedPreferences) {
     constructor(context: Context) : this(context.getSharedPreferences("settings", Context.MODE_PRIVATE))
 
+    /** Every setting, for a backup to carry to another phone. */
+    private val all = LinkedHashMap<String, Pref<*>>()
+
+    private fun <T> reg(p: Pref<T>) = p.also { all[it.key] = it }
+
     private fun string(key: String, def: String) =
-        Pref(prefs, key, def, { k, d -> getString(k, d) ?: d }, { k, v -> putString(k, v) })
+        reg(Pref(prefs, key, def, { k, d -> getString(k, d) ?: d }, { k, v -> putString(k, v) }))
 
     private fun bool(key: String, def: Boolean) =
-        Pref(prefs, key, def, { k, d -> getBoolean(k, d) }, { k, v -> putBoolean(k, v) })
+        reg(Pref(prefs, key, def, { k, d -> getBoolean(k, d) }, { k, v -> putBoolean(k, v) }))
 
     private fun int(key: String, def: Int) =
-        Pref(prefs, key, def, { k, d -> getInt(k, d) }, { k, v -> putInt(k, v) })
+        reg(Pref(prefs, key, def, { k, d -> getInt(k, d) }, { k, v -> putInt(k, v) }))
 
     private fun long(key: String, def: Long) =
-        Pref(prefs, key, def, { k, d -> getLong(k, d) }, { k, v -> putLong(k, v) })
+        reg(Pref(prefs, key, def, { k, d -> getLong(k, d) }, { k, v -> putLong(k, v) }))
 
     private fun float(key: String, def: Float) =
-        Pref(prefs, key, def, { k, d -> getFloat(k, d) }, { k, v -> putFloat(k, v) })
+        reg(Pref(prefs, key, def, { k, d -> getFloat(k, d) }, { k, v -> putFloat(k, v) }))
 
-    private inline fun <reified E : Enum<E>> enum(key: String, def: E) = Pref(
+    private inline fun <reified E : Enum<E>> enum(key: String, def: E) = reg(Pref(
         prefs, key, def,
         { k, d -> getString(k, null)?.let { s -> enumValues<E>().firstOrNull { it.name == s } } ?: d },
         { k, v -> putString(k, v.name) },
-    )
+    ))
+
+    /**
+     * The settings that were changed from their defaults, typed, for a backup. Leaves out what
+     * belongs to this phone alone: the devices it trusts for Stemify Connect and the keys
+     * they gave it (another phone must be approved on its own).
+     */
+    fun export(): Map<String, Any> = prefs.all
+        .filterKeys { it in all && it !in DEVICE_ONLY }
+        .mapNotNull { (k, v) -> v?.let { k to it } }
+        .toMap()
+
+    /** Writes a backup's settings over these and updates everything watching them. Unknown keys are ignored. */
+    fun import(values: Map<String, Any>) {
+        val e = prefs.edit()
+        for ((k, v) in values) {
+            if (k !in all || k in DEVICE_ONLY) continue
+            when (v) {
+                is String -> e.putString(k, v)
+                is Boolean -> e.putBoolean(k, v)
+                is Int -> e.putInt(k, v)
+                is Long -> e.putLong(k, v)
+                is Float -> e.putFloat(k, v)
+            }
+        }
+        e.commit()
+        all.values.forEach { it.reload() }
+    }
 
     val plexUrl = string("plexUrl", "http://192.168.86.2:32400")
     val plexToken = string("plexToken", "")
@@ -121,5 +158,9 @@ class Settings(private val prefs: SharedPreferences) {
 
     val clientId: String = prefs.getString("clientId", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("clientId", it).apply()
+    }
+
+    private companion object {
+        val DEVICE_ONLY = setOf("connectAllowed", "connectKeys")
     }
 }

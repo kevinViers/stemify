@@ -130,6 +130,7 @@ fun SettingsScreen() {
         section("storage", header = "Storage", separatorInset = 60.dp, rows = listOf(
             { Cell("Cache & Downloads", icon = { SettingsIcon(Sym.externalDrive, Color(0xFF8E8E93)) }, value = gb(usage.cachedBytes), chevron = true) { nav.push(Route.Storage) } },
             { Cell("Download on Wi-Fi Only", icon = { SettingsIcon(Sym.download, Color(0xFF30B0C7)) }, trailing = { IosSwitch(wifi, { s.downloadsWifiOnly.value = it }) }) },
+            { Cell("Transfer to a New Phone", icon = { SettingsIcon(Sym.phone, Color(0xFF34C759)) }, chevron = true) { nav.push(Route.Transfer) } },
         ))
         section("display", header = "Display", separatorInset = 60.dp,
             footer = "Stemify 1.1 · stems by stemd on your server" + (mode?.let { " · ${"%.0f".format(it.refreshRate)} Hz" } ?: ""),

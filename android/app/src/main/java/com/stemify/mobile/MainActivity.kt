@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (intent?.getBooleanExtra(EXTRA_NOW_PLAYING, false) == true) openNowPlaying.intValue++
+        if (savedInstanceState == null) takeBackup(intent)
         setContent { StemApp(openNowPlaying.intValue) }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -59,6 +60,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_NOW_PLAYING, false)) openNowPlaying.intValue++
+        takeBackup(intent)
+    }
+
+    /** A backup file opened with Stemify (Files, a Quick Share notification) or shared to it. */
+    private fun takeBackup(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            else -> null
+        } ?: return
+        App.graph.incomingBackup.value = uri
     }
 
     /**
@@ -87,6 +99,8 @@ class MainActivity : ComponentActivity() {
         controller = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
         App.graph.eq.refreshRoute()
         App.graph.connect.askBluetoothPermission = { bluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT) }
+        // Downloads left queued by a restart (an update, the system ending the app) carry on in the background.
+        App.graph.downloads.showProgress()
     }
 
     override fun onStop() {

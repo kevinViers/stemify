@@ -69,6 +69,7 @@ Spinner 1.0 Spinner.qml
 StemFlag 1.0 StemFlag.qml
 StemServerScreen 1.0 StemServerScreen.qml
 StorageScreen 1.0 StorageScreen.qml
+TransferScreen 1.0 TransferScreen.qml
 Sym 1.0 Sym.qml
 Tabs 1.0 Tabs.qml
 Tag 1.0 Tag.qml

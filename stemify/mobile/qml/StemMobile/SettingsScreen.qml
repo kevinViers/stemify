@@ -43,6 +43,7 @@ Page {
             Cell { title: "Cache & Downloads"; icon: "externalDrive"; iconBg: "#8E8E93"; chevron: true
                    value: Api.gb(downloads.usage.pinned + downloads.usage.cached); tap: () => Ui.push("StorageScreen") }
             Cell { title: "Music & Stems Folders"; icon: "folder"; iconBg: "#30B0C7"; chevron: true; tap: () => Ui.push("FoldersScreen") }
+            Cell { title: "Transfer to a New Computer"; icon: "desktop"; iconBg: "#34C759"; chevron: true; tap: () => Ui.push("TransferScreen") }
         }
         Section {
             header: "Display"; inset: 60

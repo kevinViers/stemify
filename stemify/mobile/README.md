@@ -37,6 +37,21 @@ Everything from the phone app (see the main README), with desktop habits added:
 The Now Playing transport has **10-second skip buttons** outside previous and next, as on the
 phone.
 
+## Moving to a new computer
+
+**Settings → Transfer to a New Computer** saves a backup file and restores one, so a new install
+picks up where this one is. **Save as a File…** writes a `.json` with your settings (Plex and
+stem server sign-ins, Stem Quality, crossfade, theme, folders, volume), your EQ profiles, the
+queue with its stem mix, and the list of what's downloaded. The music itself isn't in it. On the
+new computer, **Restore from a Backup…** reads the file, tells you what's in it, and applies it
+right away, no restart: settings and EQ replace that computer's, the queue and mix are taken
+(only the mix, if something is playing), and the downloads start fetching from your server.
+Songs already downloaded are left alone.
+
+The file holds your sign-ins, so keep it to yourself. It doesn't carry Stemify Connect trust (a
+new computer is approved on its own). Backups only go between computers: the phone app has the
+same screen, but its file won't restore here, and this one won't restore there.
+
 ## How it plays
 
 The audio comes from Stemify Player's engine (`stemify/player/engine.py`): a decoder thread

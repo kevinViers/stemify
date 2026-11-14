@@ -85,6 +85,7 @@ def main():
     from .eq import EqController
     from .icons import SymProvider
     from .playback import MobilePlayer
+    from .transfer import Transfer
 
     plex = Plex(cfg, product="Stemify")
     stems = StemServer(cfg, config.CACHE_DIR)
@@ -95,6 +96,7 @@ def main():
     player = MobilePlayer(cfg, plex, stems, engine, downloads, backend.opus_kbps)
     backend.crossfadeChanged.connect(player.replan)
     eq = EqController(os.path.join(DATA_DIR, "eq.json"), engine)
+    transfer = Transfer(backend, downloads, player, eq, engine)
 
     # Stemify Connect (docs/CONNECT.md): nearby devices can drive this player, and this app can
     # drive theirs.
@@ -117,6 +119,7 @@ def main():
     ctx.setContextProperty("engine", engine)
     ctx.setContextProperty("downloads", downloads)
     ctx.setContextProperty("eq", eq)
+    ctx.setContextProperty("transfer", transfer)
     nearby = Nearby(cfg, identity, beacon, ctx, {"player": player, "engine": engine, "eq": eq}, save=lambda: config.save(cfg))
     ctx.setContextProperty("nearby", nearby)
     ctx.setContextProperty("receiver", receiver)

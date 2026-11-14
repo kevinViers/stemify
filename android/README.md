@@ -23,6 +23,18 @@ adb install -r ../Stemify.apk
 3. Settings → Stem Server should say "Online" with a song count. The default address is
    `http://192.168.86.2:8765`. If stemserve has a token, enter it there too.
 
+### Moving to a new phone
+
+Settings → **Transfer to a New Phone** on the old phone makes a backup: every setting (servers
+and their sign-ins, stem quality, crossfade, theme...), the EQ profiles, the queue with its stem
+mix, and the list of downloaded songs, albums and playlists. **Send to New Phone…** opens the
+share sheet (Quick Share, Drive, Messages); **Save as a File…** puts it anywhere. On the new
+phone, open the file from Files or the Quick Share notification (or use **Restore from a
+Backup…** on the same page) and confirm. Settings and EQ take over at once, and the downloads
+start again from your server; the music itself isn't in the file, so it stays small. Devices
+approved for Stemify Connect aren't carried over: approve the new phone on them again. The file
+holds your Plex and stem server sign-ins, so treat it like a password.
+
 ### Away from home
 
 Plex works anywhere without a VPN, as long as **Remote Access** is on in Plex's own settings.

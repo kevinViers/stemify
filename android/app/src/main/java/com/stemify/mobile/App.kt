@@ -98,6 +98,8 @@ class Graph(app: App) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val settings = Settings(app)
     val net = Connectivity(app)
+    /** A backup file this app was asked to open, until the Transfer page takes it. */
+    val incomingBackup = kotlinx.coroutines.flow.MutableStateFlow<android.net.Uri?>(null)
     /** Which address reaches Plex (LAN, public or relay); requests are sent there. */
     val plexRoute = com.stemify.mobile.plex.PlexRoute(
         settings, merge(net.online.drop(1), net.unmetered.drop(1)), scope,

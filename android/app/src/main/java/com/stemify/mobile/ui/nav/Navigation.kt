@@ -62,6 +62,7 @@ sealed interface Route {
     data object Crossfade : Route { override val title = "Crossfade" }
     data object Nearby : Route { override val title = "Nearby Devices" }
     data object Storage : Route { override val title = "Storage" }
+    data object Transfer : Route { override val title = "Transfer" }
     data object Appearance : Route { override val title = "Appearance" }
     data class ArtistPage(val artist: Artist) : Route { override val title get() = artist.title }
     data class AlbumPage(val album: Album) : Route { override val title get() = album.title }

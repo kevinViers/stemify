@@ -924,8 +924,28 @@ class PlaybackManager(
         }
     }
 
-    private fun restore() {
-        val saved = runCatching { AppJson.decodeFromString(SavedQueue.serializer(), queueFile.readText()) }.getOrNull() ?: return
+    /** The queue, place and stem mix as saved, for a backup; null if nothing's saved yet. */
+    fun exportQueue(): String? = runCatching { queueFile.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /**
+     * Takes over a queue from a backup (another phone's): its songs, place and stem mix. Main
+     * thread. While something plays here, only the mix is taken, so the music isn't cut off.
+     */
+    fun adoptQueue(json: String) {
+        val saved = runCatching { AppJson.decodeFromString(SavedQueue.serializer(), json) }.getOrNull() ?: return
+        if (_playWhenReady.value) {
+            applyMix(saved.mix)
+            return
+        }
+        stop()
+        restore(saved)
+        pushMix()
+        changed()
+        save()
+    }
+
+    private fun restore(saved: SavedQueue? = runCatching { AppJson.decodeFromString(SavedQueue.serializer(), queueFile.readText()) }.getOrNull()) {
+        saved ?: return
         _queue.value = saved.items
         unshuffled = saved.unshuffled
         _shuffle.value = saved.unshuffled != null
