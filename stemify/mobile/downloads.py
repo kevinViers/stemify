@@ -32,6 +32,7 @@ class Downloads(QObject):
     changed = Signal()
     progressChanged = Signal()
     usageChanged = Signal()
+    queueChanged = Signal()
     _step = Signal(str, object)
 
     def __init__(self, cfg, plex, stems, art, data_dir, cache_dir, quality, parent=None):
@@ -50,6 +51,9 @@ class Downloads(QObject):
         self.progress = {}
         self._usage = {"pinned": 0, "cached": 0}
         self._queue = [k for k, r in self.records.items() if not r.get("done") and not r.get("error")]
+        self._current = None   # the song being fetched right now
+        self._finished = 0     # songs finished since the queue last ran dry (the queue page's batch)
+        self._fetched = 0      # bytes brought in since the app started; the queue page works out the speed
         self._cond = threading.Condition()
         self._step.connect(self._on_step)
         self._tick = QTimer(self, interval=250, singleShot=True)
@@ -95,10 +99,29 @@ class Downloads(QObject):
     progressMap = Property("QVariantMap", lambda self: dict(self.progress), notify=progressChanged)
     usage = Property("QVariantMap", lambda self: dict(self._usage), notify=usageChanged)
 
+    def _get_queue(self):
+        """{active, queued, finished}: keys being fetched now, keys waiting in order, and songs done in this batch."""
+        with self._cond:
+            cur = self._current
+            return {"active": [cur] if cur in self.records else [],
+                    "queued": [k for k in self._queue if k in self.records],
+                    "finished": self._finished}
+
+    queue = Property("QVariantMap", _get_queue, notify=queueChanged)
+
+    @Slot(result="double")
+    def bytesFetched(self):
+        return float(self._fetched)
+
+    def _idle(self):
+        return self._current is None and not any(k in self.records for k in self._queue)
+
     @Slot("QVariantList")
     def download(self, tracks):
         now = time.time()
         with self._cond:
+            if self._idle():
+                self._finished = 0
             for t in tracks:
                 k = t.get("key")
                 if not k or (k in self.records and not self.records[k].get("error")):
@@ -109,6 +132,7 @@ class Downloads(QObject):
             self._cond.notify()
         self._save()
         self.changed.emit()
+        self.queueChanged.emit()
 
     @Slot("QVariantList")
     def remove(self, tracks):
@@ -123,11 +147,14 @@ class Downloads(QObject):
                     self.progress.pop(k, None)
         self._save()
         self.changed.emit()
+        self.queueChanged.emit()
         self.refreshUsage()
 
     @Slot()
     def retryFailed(self):
         with self._cond:
+            if self._idle():
+                self._finished = 0
             for k, r in self.records.items():
                 if r.get("error"):
                     r["error"] = None
@@ -135,6 +162,7 @@ class Downloads(QObject):
             self._cond.notify()
         self._save()
         self.changed.emit()
+        self.queueChanged.emit()
 
     @Slot(str, result=bool)
     def isDownloaded(self, key):
@@ -172,6 +200,12 @@ class Downloads(QObject):
             k, files, error = data
             r = self.records.get(k)
             self.progress.pop(k, None)
+            with self._cond:
+                if self._current == k:
+                    self._current = None
+                if r is not None and error is None:
+                    self._finished += 1
+            self.queueChanged.emit()
             if r is not None:
                 r["done"], r["error"] = error is None, error
                 if files:
@@ -180,6 +214,8 @@ class Downloads(QObject):
                 self.changed.emit()
                 self.progressChanged.emit()
                 self.refreshUsage()
+        elif kind == "start":
+            self.queueChanged.emit()
         elif kind == "usage":
             self._usage = data
             self.usageChanged.emit()
@@ -191,8 +227,11 @@ class Downloads(QObject):
                     self._cond.wait()
                 k = self._queue.pop(0)
                 r = self.records.get(k)
+                if r is not None:
+                    self._current = k
             if r is None:
                 continue
+            self._step.emit("start", k)
             try:
                 files = self._fetch(k, r["track"])
                 self._step.emit("done", (k, files, None))
@@ -251,6 +290,7 @@ class Downloads(QObject):
         tmp = dest + ".part"
         if local:
             shutil.copyfile(local, tmp)
+            self._fetched += os.path.getsize(tmp)
         else:
             if not url:
                 raise OSError("Not reachable")
@@ -261,6 +301,7 @@ class Downloads(QObject):
                 while chunk := r.read(1 << 20):
                     f.write(chunk)
                     got += len(chunk)
+                    self._fetched += len(chunk)
                     if total:
                         progress(got / total)
         os.replace(tmp, dest)

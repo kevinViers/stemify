@@ -65,6 +65,10 @@ equalizer, the master volume and a peak limiter. The EQ maths is a port of the p
   in `~/.cache/stemify/mobile/files`, trimmed to the limit set in Storage.
 - **Downloads** keep every stem (or the original) plus its waveform in
   `~/.local/share/stemify/mobile/downloads`, and play first.
+- **Download Queue** shows what's being fetched, what's next and what failed, with the overall
+  percentage, the speed and how much has come down. Open it from the banner at the top of
+  Downloads (it appears whenever something is queued or has failed) or from Storage, where the
+  row reads "N left" or "Empty". **Retry Failed** puts the failed songs back in line.
 - Settings, the queue and the mix live in `~/.config/stemify/mobile.json` and
   `mobile-queue.json`; EQ profiles in `~/.local/share/stemify/mobile/eq.json`.
 - Plays are reported to Plex, and media keys and desktop media controls work through MPRIS.

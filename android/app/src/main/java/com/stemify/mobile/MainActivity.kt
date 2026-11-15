@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
         }
         if (intent?.getBooleanExtra(EXTRA_NOW_PLAYING, false) == true) openNowPlaying.intValue++
         if (savedInstanceState == null) takeBackup(intent)
+        if (intent?.getBooleanExtra(EXTRA_DOWNLOAD_QUEUE, false) == true) g.openDownloadQueue.value++
         setContent { StemApp(openNowPlaying.intValue) }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra(EXTRA_NOW_PLAYING, false)) openNowPlaying.intValue++
+        if (intent.getBooleanExtra(EXTRA_DOWNLOAD_QUEUE, false)) App.graph.openDownloadQueue.value++
         takeBackup(intent)
     }
 
@@ -112,5 +114,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_NOW_PLAYING = "now_playing"
+        /** From the download notification: open the download queue. */
+        const val EXTRA_DOWNLOAD_QUEUE = "download_queue"
     }
 }

@@ -11,6 +11,11 @@ Page {
         Section {
             header: "On This Computer"
             Cell { title: "Downloads"; value: Api.gb(downloads.usage.pinned); chevron: true; tap: () => Ui.selectTab("downloads") }
+            Cell {
+                title: "Download Queue"; chevron: true
+                value: { var n = downloads.queue.active.length + downloads.queue.queued.length; return n ? n + " left" : "Empty" }
+                tap: () => Ui.push("DownloadQueueScreen")
+            }
             Cell { title: "Streaming Cache"; value: Api.gb(downloads.usage.cached) }
         }
         Section {

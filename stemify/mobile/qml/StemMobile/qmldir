@@ -18,6 +18,7 @@ Cell 1.0 Cell.qml
 Chevron 1.0 Chevron.qml
 Chip 1.0 Chip.qml
 DownloadedMark 1.0 DownloadedMark.qml
+DownloadQueueScreen 1.0 DownloadQueueScreen.qml
 DownloadsScreen 1.0 DownloadsScreen.qml
 EmptyState 1.0 EmptyState.qml
 EqCurve 1.0 EqCurve.qml

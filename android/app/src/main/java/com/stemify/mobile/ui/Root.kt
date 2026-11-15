@@ -94,6 +94,7 @@ import com.stemify.mobile.ui.screens.SongsScreen
 import com.stemify.mobile.ui.screens.StemServerScreen
 import com.stemify.mobile.ui.screens.StorageScreen
 import com.stemify.mobile.ui.screens.TransferScreen
+import com.stemify.mobile.ui.screens.DownloadQueueScreen
 import com.stemify.mobile.ui.screens.Tab
 import com.stemify.mobile.ui.theme.Icon
 import com.stemify.mobile.ui.theme.IosTheme
@@ -128,6 +129,7 @@ private fun Screen(route: Route) = when (route) {
     Route.Nearby -> NearbyScreen()
     Route.Storage -> StorageScreen()
     Route.Transfer -> TransferScreen()
+    Route.DownloadQueue -> DownloadQueueScreen()
     Route.Appearance -> AppearanceScreen()
     is Route.ArtistPage -> ArtistScreen(route.artist)
     is Route.AlbumPage -> AlbumScreen(route.album)
@@ -210,6 +212,16 @@ private fun Shell(openNowPlaying: Int) {
     // A backup file opened from Files or Quick Share: the Transfer page offers to restore it.
     val incoming by g.incomingBackup.collectAsState()
     LaunchedEffect(incoming) { if (incoming != null) actions.showInSettings(Route.Transfer) }
+    // The download notification: the Downloads tab, with its queue on top.
+    val openQueue by g.openDownloadQueue.collectAsState()
+    LaunchedEffect(openQueue) {
+        if (openQueue == 0) return@LaunchedEffect
+        sheet.animateTo(0f)
+        playingPane = false
+        tab = Tab.Downloads
+        val st = stacks.getValue(Tab.Downloads)
+        if (st.entries.last().route != Route.DownloadQueue) st.push(Route.DownloadQueue)
+    }
 
     val fold = rememberFold()
     val swapped by g.settings.wideSwapped.flow.collectAsState()

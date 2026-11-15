@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -575,6 +576,28 @@ fun DownloadsScreen() {
                 }.joinToString(" · ")
                 Txt("$counts · ${songs(records.size)} · ${"%.1f".format(usage.pinnedBytes / 1e9)} GB · by ${DOWNLOAD_SORTS[sort].lowercase()}",
                     Type.subhead, Modifier.padding(start = MARGIN.dp, bottom = 12.dp), color = c.label2)
+                // Anything queued or failed: a way into the queue, with how far it's got.
+                val failedCount = records.values.count { it.error != null }
+                if (progress.isNotEmpty() || failedCount > 0) {
+                    val finished by g.downloads.finished.collectAsState()
+                    val batch = finished + progress.size
+                    val f = if (batch == 0) 1f else (finished + progress.values.sum()) / batch
+                    Row(
+                        Modifier.padding(start = MARGIN.dp, end = MARGIN.dp, bottom = 12.dp).fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)).background(c.cell)
+                            .tappable { nav.push(Route.DownloadQueue) }.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (progress.isNotEmpty()) ProgressRing(f, size = 22.dp) else Icon(Sym.warning, c.red, size = 20.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Txt(
+                            if (progress.isNotEmpty()) "Downloading ${songs(progress.size)} · ${(f * 100).toInt()}%"
+                            else "$failedCount download${if (failedCount == 1) "" else "s"} failed",
+                            Type.body, Modifier.weight(1f),
+                        )
+                        Icon(Sym.chevronRight, c.label3, size = 16.dp)
+                    }
+                }
                 PlayShuffle(onPlay = { g.controls.playTracks(allDone, 0) }, onShuffle = { g.controls.playTracks(allDone, shuffle = true) })
             }
         }

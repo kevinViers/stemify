@@ -74,6 +74,33 @@ Page {
                       + Api.gb(downloads.usage.pinned) + " · by " + page.sorts[page.sort].toLowerCase()
                 style: "subhead"; color: Ios.label2
             }
+            // Anything queued or failed: a way into the queue, with how far it's got.
+            Rectangle {
+                id: banner
+                readonly property int remaining: downloads.queue.active.length + downloads.queue.queued.length
+                readonly property int failed: page.albums.reduce((n, d) => n + d.failed, 0)
+                readonly property real fraction: {
+                    var q = downloads.queue, batch = q.finished + remaining, f = q.finished, pm = downloads.progressMap
+                    q.active.forEach(k => f += pm[k] || 0)
+                    return batch === 0 ? 1 : f / batch
+                }
+                visible: remaining > 0 || failed > 0
+                x: Ios.margin; width: parent.width - 2 * Ios.margin
+                height: visible ? 48 : 0; radius: 12; color: Ios.cell
+                Row {
+                    x: 14; anchors.verticalCenter: parent.verticalCenter; spacing: 12
+                    ProgressRing { visible: banner.remaining > 0; size: 22; progress: banner.fraction; anchors.verticalCenter: parent.verticalCenter }
+                    Sym { visible: banner.remaining === 0; name: "warning"; color: Ios.red; size: 20; anchors.verticalCenter: parent.verticalCenter }
+                    Txt {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: banner.remaining > 0 ? "Downloading " + Api.songs(banner.remaining) + " · " + Math.floor(banner.fraction * 100) + "%"
+                                              : banner.failed + " download" + (banner.failed === 1 ? "" : "s") + " failed"
+                    }
+                }
+                Chevron { anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter }
+                Pressable { anchors.fill: parent; fade: true; tap: () => Ui.push("DownloadQueueScreen") }
+            }
+            Item { visible: banner.visible; width: 1; height: 12 }
             PlayShuffle { play: () => player.playTracks(page.allDone, 0, false); shuffle: () => player.playTracks(page.allDone, -1, true) }
         }
         AlbumGrid {

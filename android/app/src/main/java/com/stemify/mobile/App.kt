@@ -100,6 +100,8 @@ class Graph(app: App) {
     val net = Connectivity(app)
     /** A backup file this app was asked to open, until the Transfer page takes it. */
     val incomingBackup = kotlinx.coroutines.flow.MutableStateFlow<android.net.Uri?>(null)
+    /** Counts taps on the download notification; each one opens the download queue. */
+    val openDownloadQueue = kotlinx.coroutines.flow.MutableStateFlow(0)
     /** Which address reaches Plex (LAN, public or relay); requests are sent there. */
     val plexRoute = com.stemify.mobile.plex.PlexRoute(
         settings, merge(net.online.drop(1), net.unmetered.drop(1)), scope,

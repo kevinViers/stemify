@@ -60,7 +60,11 @@ of the rest of the library, and they switch to stems within a minute or so of fi
 
 The tabs are Library, Playlists, Search, Downloads and Settings. Library's home shows **On This
 Day**: albums released on today's date in earlier years (or, on a quiet day, the few days either
-side). **Downloads** lists albums, sorted by download order, artist or release date. The
+side). **Downloads** lists albums, sorted by download order, artist or release date. While
+anything is downloading (or failed), a bar at its top opens the **Download Queue**: overall
+progress, speed and how much has come down, the songs downloading now with their own progress,
+what's up next in order, and what failed with the reason and **Retry Failed**. Tapping the
+download notification, or Settings → Cache & Downloads → Download Queue, opens it too. The
 **Equalizer** is in Settings.
 
 The Equalizer has the 10 graphic bands plus **Parametric Filters**, as in Equalizer APO: peak,

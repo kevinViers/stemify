@@ -98,6 +98,15 @@ class Downloads(
     /** ratingKey -> 0..1 for queued and running downloads. */
     private val _progress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val progress: StateFlow<Map<String, Float>> = _progress.asStateFlow()
+    /** Songs being fetched right now (past any wait for Wi-Fi), in the order they started. */
+    private val _active = MutableStateFlow<Set<String>>(emptySet())
+    val active: StateFlow<Set<String>> = _active.asStateFlow()
+    /** Songs finished since the queue last ran dry: with what's left, the batch the queue page shows. */
+    private val _finished = MutableStateFlow(0)
+    val finished: StateFlow<Int> = _finished.asStateFlow()
+    private val fetched = java.util.concurrent.atomic.AtomicLong()
+    /** Bytes downloaded since the app started; the queue page works out the speed from it. */
+    val bytesFetched: Long get() = fetched.get()
     private val queue = Channel<String>(Channel.UNLIMITED)
     private val cancelled = HashSet<String>()
 
@@ -237,7 +246,7 @@ class Downloads(
 
     private fun enqueue(key: String) {
         synchronized(cancelled) { cancelled -= key }
-        _progress.update { it + (key to 0f) }
+        _progress.update { p -> (p + (key to 0f)).also { if (p.isEmpty()) _finished.value = 0 } }
         queue.trySend(key)
     }
 
@@ -250,6 +259,8 @@ class Downloads(
         fun abandon() = pinned.forEach { cache.unpin(it) }
         try {
             if (settings.downloadsWifiOnly.value) net.unmetered.first { it }
+            if (isCancelled()) return
+            _active.update { it + key }
             val t = rec.track
             val entry = stems.find(t)
             val names = entry?.stems?.map { it.name } ?: listOf("mix")
@@ -268,10 +279,14 @@ class Downloads(
             sources.forEachIndexed { i, (cacheKey, url) ->
                 if (isCancelled()) return@forEachIndexed
                 val res = cache.acquire(cacheKey) { url }
+                // The first report counts what an earlier try already had; only growth after it is new.
+                var last = -1L
                 try {
                     res.pinned = true
                     res.downloadAll(
                         progress = { got, len ->
+                            if (last >= 0 && got > last) fetched.addAndGet(got - last)
+                            last = got
                             val f = if (len > 0) got.toFloat() / len else 0f
                             _progress.update { it + (key to (i + f) / sources.size) }
                         },
@@ -289,12 +304,14 @@ class Downloads(
                 }
             }
             update { m -> if (key in m) m + (key to m.getValue(key).copy(done = true, error = null)) else m }
+            _finished.update { it + 1 }
             // Lyrics too, kept on the phone for offline; not something to hold the download up for.
             scope.launch(Dispatchers.IO) { runCatching { lyrics.get(t) } }
         } catch (e: Exception) {
             if (isCancelled()) return abandon()
             update { m -> if (key in m) m + (key to m.getValue(key).copy(error = e.message ?: "Download failed")) else m }
         } finally {
+            _active.update { it - key }
             _progress.update { it - key }
         }
     }
@@ -370,7 +387,11 @@ class DownloadService : Service() {
     }
 
     private fun build(left: Int, fraction: Float): Notification {
-        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_DOWNLOAD_QUEUE, true),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_stems)
             .setContentTitle(if (left > 0) "Downloading $left song${if (left == 1) "" else "s"}" else "Preparing downloads")

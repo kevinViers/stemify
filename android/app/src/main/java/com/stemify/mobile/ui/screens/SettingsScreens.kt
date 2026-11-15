@@ -425,6 +425,7 @@ fun StorageScreen() {
     Page("Storage", grouped = true) {
         section("usage", header = "On This Phone", rows = listOf(
             { Cell("Downloads", value = gb(usage.pinnedBytes), chevron = true) { app.selectTab(Tab.Downloads) } },
+            { Cell("Download Queue", value = g.downloads.progress.collectAsState().value.size.let { if (it == 0) "Empty" else "$it left" }, chevron = true) { nav.push(Route.DownloadQueue) } },
             { Cell("Streaming Cache", value = gb(usage.cachedBytes - usage.pinnedBytes)) },
         ))
         val limits = listOf(2, 5, 10, 20, 50, 100)
